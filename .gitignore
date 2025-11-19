@@ -1,3 +1,5 @@
 build
 mx.scratch
 !.settings
+.vscode
+.DS_Store
