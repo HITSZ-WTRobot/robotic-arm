@@ -1,0 +1,19 @@
+CompileFlags:
+  Add:
+    - -ferror-limit=0
+    - -Wno-implicit-int
+    - -Id:\Programs\gcc_arm\arm-none-eabi\include\c++\14.2.1
+    - -Id:\Programs\gcc_arm\arm-none-eabi\include\c++\14.2.1\arm-none-eabi\thumb\v7e-m+fp\hard
+    - -Id:\Programs\gcc_arm\arm-none-eabi\include\c++\14.2.1\backward
+    - -Id:\Programs\gcc_arm\lib\gcc\arm-none-eabi\14.2.1\include
+    - -Id:\Programs\gcc_arm\lib\gcc\arm-none-eabi\14.2.1\include-fixed
+    - -Id:\Programs\gcc_arm\arm-none-eabi\include
+  CompilationDatabase: ./build/Debug
+  Remove: []
+  Compiler: d:\Programs\gcc_arm\bin\arm-none-eabi-gcc.exe
+Diagnostics:
+  Suppress:
+    - unused-includes
+    - unknown_typename
+    - unknown_typename_suggest
+    - typename_requires_specqual
