@@ -45,6 +45,10 @@
 #include <stdbool.h>
 #include "main.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 typedef enum
 {
     M3508_C620 = 0U,
@@ -127,5 +131,9 @@ void DJI_CAN_Fifo1ReceiveCallback(CAN_HandleTypeDef* hcan);
 void DJI_CAN_BaseReceiveCallback(const CAN_HandleTypeDef* hcan, const CAN_RxHeaderTypeDef* header, uint8_t data[]);
 
 void DJI_SendSetIqCommand(CAN_HandleTypeDef* hcan, DJI_IqSetCmdGroup_t cmd_group);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif // DJI_H
