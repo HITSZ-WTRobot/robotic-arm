@@ -58,7 +58,7 @@ namespace Arm
 
     void Motor::setTarget(float angle, float torque_ff)
     {
-        target_angle_ = angle;
+        target_angle_ = angle * DEG_TO_RAD;
         feedforward_  = torque_ff;
     }
 

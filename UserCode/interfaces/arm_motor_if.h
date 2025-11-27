@@ -46,7 +46,7 @@ namespace Arm
 
         /**
          * @brief 设置控制目标
-         * @param angle 目标角度 (rad)
+         * @param angle 目标角度 (degree)
          * @param torque_ff 前馈力矩 (Nm)
          */
         void setTarget(float angle, float torque_ff);
