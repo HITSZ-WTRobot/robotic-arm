@@ -1,6 +1,7 @@
 #pragma once
 
 #include "interfaces/arm_motor_if.h"
+#include "libs/s_curve.h"
 
 namespace Arm
 {
@@ -37,6 +38,19 @@ namespace Arm
             float reduction_1;
             float reduction_2;
             float reduction_3;
+
+            // 运动学限制 (Degree)
+            float j1_max_vel;
+            float j1_max_acc;
+            float j1_max_jerk;
+
+            float j2_max_vel;
+            float j2_max_acc;
+            float j2_max_jerk;
+
+            float j3_max_vel;
+            float j3_max_acc;
+            float j3_max_jerk;
         };
 
         /**
@@ -58,11 +72,8 @@ namespace Arm
          * @param q1 大臂目标角度 (degree)
          * @param q2 小臂目标角度 (degree)
          * @param q3 吸盘关节目标角度 (degree)
-         * @param t1 大臂运动时间 (s)
-         * @param t2 小臂运动时间 (s)
-         * @param t3 吸盘关节运动时间 (s)
          */
-        void setJointTarget(float q1, float q2, float q3, float t1, float t2, float t3);
+        void setJointTarget(float q1, float q2, float q3);
 
         /**
          * @brief 查询关节是否都已到达目标
@@ -92,34 +103,23 @@ namespace Arm
 
     private:
         /**
-         * @brief 五次多项式轨迹规划器
+         * @brief S型曲线轨迹规划器
          */
-        struct QuinticTrajectory
+        struct SCurveTrajectory
         {
-            float c0, c1, c2, c3, c4, c5; // 多项式系数
-            float current_time;           // 当前运行时间
-            float total_time;             // 总运行时间
-            float target_pos;             // 最终目标位置 (用于修正浮点误差)
-            bool running;                 // 是否正在运行
+            SCurve_t curve;
+            float current_time;
+            bool running;
 
-            QuinticTrajectory() :
-                running(false) {}
+            // 当前状态缓存
+            float cur_pos;
+            float cur_vel;
+            float cur_acc;
 
-            /**
-             * @brief 规划轨迹
-             * @param start_pos 起始位置
-             * @param start_vel 起始速度
-             * @param end_pos 结束位置
-             * @param time 运行时间
-             */
-            void plan(float start_pos, float start_vel, float end_pos, float time);
+            SCurveTrajectory() :
+                current_time(0), running(false), cur_pos(0), cur_vel(0), cur_acc(0) {}
 
-            /**
-             * @brief 计算当前时刻的位置和速度
-             * @param dt 时间增量
-             * @param pos [out] 位置
-             * @param vel [out] 速度
-             */
+            void plan(float start_pos, float end_pos, float start_vel, float start_acc, float max_vel, float max_acc, float max_jerk);
             void step(float dt, float& pos, float& vel);
         };
 
@@ -139,9 +139,9 @@ namespace Arm
 
         Config config_;
 
-        QuinticTrajectory traj_q1_;
-        QuinticTrajectory traj_q2_;
-        QuinticTrajectory traj_q3_;
+        SCurveTrajectory traj_q1_;
+        SCurveTrajectory traj_q2_;
+        SCurveTrajectory traj_q3_;
 
         float current_q1_ref_; // 当前规划的位置参考值
         float current_q2_ref_;

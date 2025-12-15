@@ -12,85 +12,60 @@ namespace Arm
 {
 
     // ============================================================================
-    // QuinticTrajectory Implementation
+    // SCurveTrajectory Implementation
     // ============================================================================
 
-    void Controller::QuinticTrajectory::plan(float start_pos, float start_vel, float end_pos, float time)
+    void Controller::SCurveTrajectory::plan(float start, float end, float start_vel, float start_acc, float max_vel, float max_acc, float max_jerk)
     {
-        if (time <= 0.0001f)
+        SCurve_Result_t res = SCurve_Init(&curve, start, end, start_vel, start_acc, max_vel, max_acc, max_jerk);
+        if (res == S_CURVE_SUCCESS)
         {
-            // 时间太短，直接到达
-            c0           = end_pos;
-            c1           = 0;
-            c2           = 0;
-            c3           = 0;
-            c4           = 0;
-            c5           = 0;
+            running      = true;
             current_time = 0;
-            total_time   = 0;
-            target_pos   = end_pos;
-            running      = false;
-            return;
+            cur_pos      = start;
+            cur_vel      = start_vel;
+            cur_acc      = start_acc;
         }
-
-        total_time   = time;
-        current_time = 0;
-        target_pos   = end_pos;
-        running      = true;
-
-        // 计算五次多项式系数
-        // 约束: p0=start, v0=vel, a0=0; pf=end, vf=0, af=0
-        float h  = end_pos - start_pos;
-        float T  = time;
-        float T2 = T * T;
-        float T3 = T2 * T;
-        float T4 = T3 * T;
-        float T5 = T4 * T;
-
-        c0 = start_pos;
-        c1 = start_vel;
-        c2 = 0.0f; // 假设初始加速度为 0，如果需要更平滑的连续运动，需要记录上一次的加速度
-
-        // c3 = (10h - 6v0T) / T^3
-        c3 = (10.0f * h - 6.0f * start_vel * T) / T3;
-
-        // c4 = (15(p0 - pf) + 8v0T) / T^4  => (-15h + 8v0T) / T^4
-        c4 = (-15.0f * h + 8.0f * start_vel * T) / T4;
-
-        // c5 = (6h - 3v0T) / T^5
-        c5 = (6.0f * h - 3.0f * start_vel * T) / T5;
+        else
+        {
+            // Planning failed (e.g. constraints violation), stop at current or jump to end?
+            // Safest is to stop or keep previous motion?
+            // Here we just stop at start position for safety.
+            running = false;
+            cur_pos = start;
+            cur_vel = 0;
+            cur_acc = 0;
+        }
     }
 
-    void Controller::QuinticTrajectory::step(float dt, float& pos, float& vel)
+    void Controller::SCurveTrajectory::step(float dt, float& pos, float& vel)
     {
         if (!running)
         {
-            pos = target_pos;
+            pos = cur_pos;
             vel = 0.0f;
             return;
         }
 
         current_time += dt;
 
-        if (current_time >= total_time)
+        if (current_time >= curve.total_time)
         {
-            pos     = target_pos;
-            vel     = 0.0f;
             running = false;
+            cur_pos = curve.xe;
+            cur_vel = 0;
+            cur_acc = 0;
+            pos     = cur_pos;
+            vel     = cur_vel;
             return;
         }
 
-        float t  = current_time;
-        float t2 = t * t;
-        float t3 = t2 * t;
-        float t4 = t3 * t;
-        float t5 = t4 * t;
+        cur_pos = SCurve_CalcX(&curve, current_time);
+        cur_vel = SCurve_CalcV(&curve, current_time);
+        cur_acc = SCurve_CalcA(&curve, current_time);
 
-        // p(t) = c0 + c1*t + c2*t^2 + c3*t^3 + c4*t^4 + c5*t^5
-        pos = c0 + c1 * t + c2 * t2 + c3 * t3 + c4 * t4 + c5 * t5;
-
-        // v(t) = c1 + 2*c2*t + 3*c3*t^2 + 4*c4*t^3 + 5*c5*t^4
-        vel = c1 + 2.0f * c2 * t + 3.0f * c3 * t2 + 4.0f * c4 * t3 + 5.0f * c5 * t4;
+        pos = cur_pos;
+        vel = cur_vel;
     }
 
     // ============================================================================
@@ -117,31 +92,21 @@ namespace Arm
         current_q3_ref_ = q3_deg;
 
         // 初始化轨迹为当前位置，速度为0
-        traj_q1_.plan(q1_deg, 0, q1_deg, 0);
-        traj_q2_.plan(q2_deg, 0, q2_deg, 0);
-        traj_q3_.plan(q3_deg, 0, q3_deg, 0);
+        traj_q1_.plan(q1_deg, q1_deg, 0, 0, config_.j1_max_vel, config_.j1_max_acc, config_.j1_max_jerk);
+        traj_q2_.plan(q2_deg, q2_deg, 0, 0, config_.j2_max_vel, config_.j2_max_acc, config_.j2_max_jerk);
+        traj_q3_.plan(q3_deg, q3_deg, 0, 0, config_.j3_max_vel, config_.j3_max_acc, config_.j3_max_jerk);
     }
 
-    void Controller::setJointTarget(float q1, float q2, float q3, float t1, float t2, float t3)
+    void Controller::setJointTarget(float q1, float q2, float q3)
     {
         // 获取当前状态作为起点 (解决速度跳变问题)
         // 使用当前规划器的输出作为起点可能比使用传感器反馈更平滑，
         // 但如果偏差较大，使用反馈更安全。这里为了连续性，使用当前电机的实际反馈速度。
         // 位置则使用当前规划的参考位置，避免因控制误差导致的轨迹回跳。
 
-        float start_q1 = current_q1_ref_;
-        // 关节速度 = 电机速度 / 减速比
-        float start_v1 = (joint1_.getVelocity() / config_.reduction_1) * RAD_TO_DEG;
-
-        float start_q2 = current_q2_ref_;
-        float start_v2 = (joint2_.getVelocity() / config_.reduction_2) * RAD_TO_DEG;
-
-        float start_q3 = current_q3_ref_;
-        float start_v3 = (joint3_.getVelocity() / config_.reduction_3) * RAD_TO_DEG;
-
-        traj_q1_.plan(start_q1, start_v1, q1, t1);
-        traj_q2_.plan(start_q2, start_v2, q2, t2);
-        traj_q3_.plan(start_q3, start_v3, q3, t3);
+        traj_q1_.plan(traj_q1_.cur_pos, q1, traj_q1_.cur_vel, traj_q1_.cur_acc, config_.j1_max_vel, config_.j1_max_acc, config_.j1_max_jerk);
+        traj_q2_.plan(traj_q2_.cur_pos, q2, traj_q2_.cur_vel, traj_q2_.cur_acc, config_.j2_max_vel, config_.j2_max_acc, config_.j2_max_jerk);
+        traj_q3_.plan(traj_q3_.cur_pos, q3, traj_q3_.cur_vel, traj_q3_.cur_acc, config_.j3_max_vel, config_.j3_max_acc, config_.j3_max_jerk);
     }
 
     bool Controller::isArrived() const
@@ -154,10 +119,13 @@ namespace Arm
         // 1. 计算轨迹生成的新目标状态
         float q1_vel_ref, q2_vel_ref, q3_vel_ref;
 
+        // traj_q1_.step(dt, current_q1_ref_, q1_vel_ref);
+        // traj_q2_.step(dt, current_q2_ref_, q2_vel_ref);
+        // traj_q3_.step(dt, current_q3_ref_, q3_vel_ref);
+
         traj_q1_.step(dt, current_q1_ref_, q1_vel_ref);
         traj_q2_.step(dt, current_q2_ref_, q2_vel_ref);
         traj_q3_.step(dt, current_q3_ref_, q3_vel_ref);
-
         // 2. 计算重力补偿力矩 (需要弧度)
         float q1_rad = current_q1_ref_ * DEG_TO_RAD;
         float q2_rad = current_q2_ref_ * DEG_TO_RAD;
@@ -172,7 +140,9 @@ namespace Arm
         // 电机目标角度 = 关节目标角度 * 减速比
         // 电机前馈力矩 = 关节前馈力矩 / 减速比
         joint1_.setTarget(current_q1_ref_ * config_.reduction_1, tau1_g / config_.reduction_1);
-        joint2_.setTarget(current_q2_ref_ * config_.reduction_2, tau2_g / config_.reduction_2);
+        // joint2_.setTarget(current_q2_ref_ * config_.reduction_2, tau2_g / config_.reduction_2);
+
+        joint2_.setTarget(current_q2_ref_ * config_.reduction_2, 0.0f);
         joint3_.setTarget(current_q3_ref_ * config_.reduction_3, 0.0f);
 
         // 5. 执行底层控制更新

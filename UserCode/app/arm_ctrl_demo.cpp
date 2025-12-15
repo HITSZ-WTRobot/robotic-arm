@@ -6,6 +6,7 @@
 
 
 DJI_t dji_motor_driver;
+DJI_t dji_gripper;
 UnitreeMotor* unitree_motor_driver = NULL;
 
 Arm::Motor* joint1_motor  = NULL;
@@ -46,10 +47,17 @@ void Init(void* argument)
     CAN_Start(&hcan1, CAN_IT_RX_FIFO0_MSG_PENDING);
     DJI_Init(&dji_motor_driver, (DJI_Config_t){
                                     .auto_zero  = false,
+                                    .reverse    = true,
                                     .motor_type = M3508_C620,
                                     .hcan       = &hcan1,
-                                    .id1        = 1});
-
+                                    .id1        = 3,
+                                });
+    DJI_Init(&dji_gripper, (DJI_Config_t){
+                               .auto_zero  = false,
+                               .motor_type = M2006_C610,
+                               .hcan       = &hcan1,
+                               .id1        = 2,
+                           });
     // 初始化 Unitree 驱动
     unitree_motor_driver = Unitree_Create_Motor();
     Unitree_init(unitree_motor_driver, &UART_UNITREE_HANDLER, 1);
@@ -57,21 +65,14 @@ void Init(void* argument)
     // 2. 实例化电机接口
     // 大臂 (Unitree)
     static Arm::Motor m1(unitree_motor_driver, 1, 5);
-    m1.setPID(10.0f, 0.0f, 0.5f, 20.0f, 1.0f, 0.0f, 0.0f, 10.0f); // 设置 PID
+    m1.setPID(4.0f, 0.01f, 0.0f, 2000.0f, 30.0f, 0.001f, 5.0f, 8000.0f); // 设置 PID
     joint1_motor = &m1;
 
     // 小臂 (DJI)
     static Arm::Motor m2(&dji_motor_driver, 16384.0f / 20.0f, 5); // 假设力矩系数
     m2.setPID(8.0f, 0.0f, 0.2f, 2000.0f, 50.0f, 0.1f, 0.0f, 10000.0f);
     joint2_motor = &m2;
-
-    // 吸盘关节 (DJI)
-    static DJI_t dji_gripper;
-    DJI_Init(&dji_gripper, (DJI_Config_t){
-                               .auto_zero  = false,
-                               .motor_type = M2006_C610,
-                               .hcan       = &hcan1,
-                               .id1        = 2});
+    // 吸盘 (DJI)
 
     static Arm::Motor m3(&dji_gripper, 1000.0f, 5);
     gripper_motor = &m3;
@@ -86,8 +87,20 @@ void Init(void* argument)
     arm_cfg.m2          = 0.8f;  // 小臂质量 kg
     arm_cfg.m3          = 0.2f;  // 吸盘质量
     arm_cfg.g           = 9.81f;
-    arm_cfg.reduction_1 = 1.0f;   // 大臂减速比 (例如 Unitree Go1 减速比)
-    arm_cfg.reduction_2 = 110.0f; // 小臂减速比 (例如 M3508 减速比)
+    arm_cfg.reduction_1 = 1.0f;               // 大臂减速比 (例如 Unitree Go1 减速比)
+    arm_cfg.reduction_2 = 5.728209412419938f; // 小臂减速比 (例如 M3508 减速比)
+    arm_cfg.reduction_3 = 36.0f;              // 吸盘关节减速比 (M2006)
+
+    // 运动学限制 (Degree)
+    arm_cfg.j1_max_vel  = 5.0f;
+    arm_cfg.j1_max_acc  = 5.0f;
+    arm_cfg.j1_max_jerk = 500.0f;
+    arm_cfg.j2_max_vel  = 5.0f;
+    arm_cfg.j2_max_acc  = 5.0f;
+    arm_cfg.j2_max_jerk = 500.0f;
+    arm_cfg.j3_max_vel  = 5.0f;
+    arm_cfg.j3_max_acc  = 5.0f;
+    arm_cfg.j3_max_jerk = 500.0f;
 
     // 4. 实例化并初始化控制器
     static Arm::Controller ctrl(*joint1_motor, *joint2_motor, *gripper_motor, arm_cfg);
@@ -109,22 +122,22 @@ void MotorCtrl(void* argument)
 
     for (;;)
     {
-        // 移动到位置 A: 大臂 45度，小臂 -30度，耗时 2秒
+        // 移动到位置 A: 大臂 45度，小臂 -30度
         if (robot_arm)
         {
-            robot_arm->setJointTarget(45.0f, -30.0f, 0.0f, 2.0f, 2.0f, 0.0f);
+            robot_arm->setJointTarget(0.0f, 0.0f, 0.0f);
         }
 
         // 等待运动完成 (简单延时，或轮询 isArrived)
-        osDelay(2500);
+        osDelay(4000);
 
-        // 移动到位置 B: 大臂 0度，小臂 0度，耗时 1.5秒
+        // 移动到位置 B
         if (robot_arm)
         {
-            robot_arm->setJointTarget(0.0f, 0.0f, 0.0f, 1.5f, 1.5f, 0.0f);
+            robot_arm->setJointTarget(0.0f, 10.10f, 0.0f);
         }
 
-        osDelay(2000);
+        osDelay(4000);
     }
 }
 
