@@ -41,6 +41,8 @@ namespace Arm
     void Motor::setPID(float pos_kp, float pos_ki, float pos_kd, float pos_max_out,
                        float vel_kp, float vel_ki, float vel_kd, float vel_max_out)
     {
+        mode_ = ControlMode::Position;
+
         MotorPID_Config_t pos_config;
         pos_config.Kp             = pos_kp;
         pos_config.Ki             = pos_ki;
@@ -56,10 +58,29 @@ namespace Arm
         MotorPID_Init(&vel_pid_, vel_config);
     }
 
+    void Motor::setPID(float vel_kp, float vel_ki, float vel_kd, float vel_max_out)
+    {
+        mode_ = ControlMode::Velocity;
+
+        std::memset(&pos_pid_, 0, sizeof(MotorPID_t));
+
+        MotorPID_Config_t vel_config;
+        vel_config.Kp             = vel_kp;
+        vel_config.Ki             = vel_ki;
+        vel_config.Kd             = vel_kd;
+        vel_config.abs_output_max = vel_max_out;
+        MotorPID_Init(&vel_pid_, vel_config);
+    }
+
     void Motor::setTarget(float angle, float torque_ff)
     {
         target_angle_ = angle * DEG_TO_RAD;
         feedforward_  = torque_ff;
+    }
+
+    void Motor::setVelocityTarget(float velocity)
+    {
+        target_velocity_ = velocity * DEG_TO_RAD;
     }
 
     void Motor::update()
@@ -67,18 +88,27 @@ namespace Arm
         // 1. 更新反馈数据
         updateFeedback();
 
-        // 2. 位置环计算 (降频)
-        update_count_++;
-        if (update_count_ >= pos_vel_ratio_)
+        if (mode_ == ControlMode::Position)
         {
-            pos_pid_.ref = target_angle_;
-            pos_pid_.fdb = current_angle_;
-            MotorPID_Calculate(&pos_pid_);
-            update_count_ = 0;
+            // 2. 位置环计算 (降频)
+            update_count_++;
+            if (update_count_ >= pos_vel_ratio_)
+            {
+                pos_pid_.ref = target_angle_;
+                pos_pid_.fdb = current_angle_;
+                MotorPID_Calculate(&pos_pid_);
+                update_count_ = 0;
+            }
+            // 速度环目标 = 位置环输出
+            vel_pid_.ref = pos_pid_.output;
+        }
+        else if (mode_ == ControlMode::Velocity)
+        {
+            // 速度环目标 = 用户设定值
+            vel_pid_.ref = target_velocity_;
         }
 
-        // 3. 速度环计算 (目标速度 = 位置环输出)
-        vel_pid_.ref = pos_pid_.output;
+        // 3. 速度环计算
         vel_pid_.fdb = current_velocity_;
         MotorPID_Calculate(&vel_pid_);
 

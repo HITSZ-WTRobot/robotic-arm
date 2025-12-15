@@ -14,6 +14,12 @@ namespace Arm
         Unitree
     };
 
+    enum class ControlMode
+    {
+        Position,
+        Velocity
+    };
+
     /**
      * @brief 机械臂关节电机统一接口 (支持 DJI 和 Unitree)
      */
@@ -39,11 +45,18 @@ namespace Arm
         ~Motor() = default;
 
         /**
-         * @brief 设置双环 PID 参数
+         * @brief 设置双环 PID 参数 (自动设置为位置模式)
          */
         void setPID(float pos_kp, float pos_ki, float pos_kd, float pos_max_out,
                     float vel_kp, float vel_ki, float vel_kd, float vel_max_out);
 
+        /**
+         * @brief 设置速度环 PID 参数 (自动设置为速度模式)
+         */
+        void setPID(float vel_kp, float vel_ki, float vel_kd, float vel_max_out);
+
+        /**
+         * @brief 设置控制目标
         /**
          * @brief 设置控制目标
          * @param angle 目标角度 (degree)
@@ -52,11 +65,24 @@ namespace Arm
         void setTarget(float angle, float torque_ff);
 
         /**
+         * @brief 设置速度目标 (速度模式调试用)
+         * @param velocity 目标速度 (degree/s)
+         */
+        void setVelocityTarget(float velocity);
+
+        /**
          * @brief 更新控制回路 (需周期性调用)
          */
         void update();
 
+        /**
+         * @brief 获取当前电机角度，单位：弧度
+         */
         float getAngle() const { return current_angle_; }
+
+        /**
+         * @brief 获取当前电机速度，单位：弧度每秒
+         */
         float getVelocity() const { return current_velocity_; }
 
     private:
@@ -64,6 +90,7 @@ namespace Arm
         void outputControl(float output);
 
         MotorType type_;
+        ControlMode mode_ = ControlMode::Position;
         void* driver_; // 泛型指针，指向 DJI_t 或 UnitreeMotor
         uint8_t id_;   // 仅用于 Unitree
 
@@ -71,8 +98,10 @@ namespace Arm
         float current_angle_    = 0.0f;
         float current_velocity_ = 0.0f;
 
-        float target_angle_ = 0.0f;
-        float feedforward_  = 0.0f;
+        // 控制目标
+        float target_angle_    = 0.0f;
+        float target_velocity_ = 0.0f;
+        float feedforward_     = 0.0f;
 
         // 控制算法数据
         MotorPID_t pos_pid_;
