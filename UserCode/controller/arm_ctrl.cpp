@@ -103,7 +103,7 @@ namespace Arm
         traj_q3_.plan(q3_deg, q3_deg, 0, 0, config_.j3_max_vel, config_.j3_max_acc, config_.j3_max_jerk);
     }
 
-    void Controller::setJointTarget(float q1, float q2, float q3)
+    void Controller::setJointTarget(float q1, float q2, float q3, float* t1, float* t2, float* t3)
     {
         // 获取当前状态作为起点 (解决速度跳变问题)
         // 使用当前规划器的输出作为起点可能比使用传感器反馈更平滑，
@@ -113,6 +113,10 @@ namespace Arm
         traj_q1_.plan(traj_q1_.cur_pos, q1, traj_q1_.cur_vel, traj_q1_.cur_acc, config_.j1_max_vel, config_.j1_max_acc, config_.j1_max_jerk);
         traj_q2_.plan(traj_q2_.cur_pos, q2, traj_q2_.cur_vel, traj_q2_.cur_acc, config_.j2_max_vel, config_.j2_max_acc, config_.j2_max_jerk);
         traj_q3_.plan(traj_q3_.cur_pos, q3, traj_q3_.cur_vel, traj_q3_.cur_acc, config_.j3_max_vel, config_.j3_max_acc, config_.j3_max_jerk);
+
+        if (t1) *t1 = traj_q1_.curve.total_time;
+        if (t2) *t2 = traj_q2_.curve.total_time;
+        if (t3) *t3 = traj_q3_.curve.total_time;
     }
 
     bool Controller::isArrived() const

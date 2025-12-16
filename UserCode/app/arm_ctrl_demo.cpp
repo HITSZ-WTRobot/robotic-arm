@@ -65,16 +65,20 @@ void Init(void* argument)
     // 2. 实例化电机接口
     // 大臂 (Unitree)
     static Arm::Motor m1(unitree_motor_driver, 1, 5);
-    m1.setPID(4.0f, 0.01f, 0.0f, 2000.0f, 30.0f, 0.001f, 5.0f, 8000.0f); // 设置 PID
+    m1.setPID(4.0f, 0.01f, 0.0f, 2000.0f,
+              30.0f, 0.001f, 5.0f, 8000.0f); // 设置 PID
     joint1_motor = &m1;
 
     // 小臂 (DJI)
     static Arm::Motor m2(&dji_motor_driver, 16384.0f / 20.0f, 5); // 假设力矩系数
-    m2.setPID(8.0f, 0.0f, 0.2f, 2000.0f, 50.0f, 0.1f, 0.0f, 10000.0f);
+    m2.setPID(8.0f, 0.0f, 0.2f, 2000.0f,
+              45.0f, 0.1f, 5.0f, 8000.0f);
     joint2_motor = &m2;
     // 吸盘 (DJI)
 
     static Arm::Motor m3(&dji_gripper, 1000.0f, 5);
+    m3.setPID(4.0f, 0.0f, 0.1f, 1000.0f,
+              20.0f, 0.05f, 2.0f, 4000.0f);
     gripper_motor = &m3;
 
     // 3. 配置机械臂参数

@@ -78,8 +78,11 @@ namespace Arm
          * @param q1 大臂目标角度 (degree)
          * @param q2 小臂目标角度 (degree)
          * @param q3 吸盘关节目标角度 (degree)
+         * @param t1 [out] (可选) 大臂预计运动时间 (s)
+         * @param t2 [out] (可选) 小臂预计运动时间 (s)
+         * @param t3 [out] (可选) 吸盘关节预计运动时间 (s)
          */
-        void setJointTarget(float q1, float q2, float q3);
+        void setJointTarget(float q1, float q2, float q3, float* t1 = nullptr, float* t2 = nullptr, float* t3 = nullptr);
 
         /**
          * @brief 查询关节是否都已到达目标
