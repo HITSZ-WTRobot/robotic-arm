@@ -3,3 +3,5 @@ mx.scratch
 !.settings
 .vscode
 .DS_Store
+.settings/bundles-lock.store.json
+.settings/bundles.store.json
