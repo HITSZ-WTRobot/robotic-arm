@@ -39,6 +39,12 @@ namespace Arm
             float reduction_2;
             float reduction_3;
 
+            // 关节零位偏移 (Degree)
+            // 关节角度 = (电机角度 / 减速比) + 偏移
+            float offset_1;
+            float offset_2;
+            float offset_3;
+
             // 运动学限制 (Degree)
             float j1_max_vel;
             float j1_max_acc;
@@ -146,6 +152,11 @@ namespace Arm
         float current_q1_ref_; // 当前规划的位置参考值
         float current_q2_ref_;
         float current_q3_ref_;
+
+        // 电机上电初始位置 (弧度)
+        float motor1_init_pos_;
+        float motor2_init_pos_;
+        float motor3_init_pos_;
     };
 
 } // namespace Arm

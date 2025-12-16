@@ -5,7 +5,6 @@
 #define M_PI 3.14159265358979323846f
 #endif
 
-static constexpr float RAD_TO_DEG = 180.0f / M_PI;
 static constexpr float DEG_TO_RAD = M_PI / 180.0f;
 
 namespace Arm
@@ -74,18 +73,25 @@ namespace Arm
 
     Controller::Controller(Motor& joint1, Motor& joint2, Motor& joint3, const Config& config) :
         joint1_(joint1), joint2_(joint2), joint3_(joint3), config_(config),
-        current_q1_ref_(0.0f), current_q2_ref_(0.0f), current_q3_ref_(0.0f)
+        current_q1_ref_(0.0f), current_q2_ref_(0.0f), current_q3_ref_(0.0f),
+        motor1_init_pos_(0.0f), motor2_init_pos_(0.0f), motor3_init_pos_(0.0f)
     {
     }
 
     void Controller::init()
     {
+        // 记录上电时的电机初始位置 (度)
+        motor1_init_pos_ = joint1_.getAngle();
+        motor2_init_pos_ = joint2_.getAngle();
+        motor3_init_pos_ = joint3_.getAngle();
+
         // 读取初始位置作为目标位置，防止上电跳变
-        // 注意: getAngle 返回弧度，这里转换为度存储在内部状态中
-        // 考虑减速比: 关节角度 = 电机角度 / 减速比
-        float q1_deg = (joint1_.getAngle() / config_.reduction_1) * RAD_TO_DEG;
-        float q2_deg = (joint2_.getAngle() / config_.reduction_2) * RAD_TO_DEG;
-        float q3_deg = (joint3_.getAngle() / config_.reduction_3) * RAD_TO_DEG;
+        // 注意: getAngle 返回度，这里存储在内部状态中
+        // 考虑减速比: 关节角度 = ((电机角度 - 初始角度) / 减速比) + 偏移
+        // 初始时刻 (电机角度 - 初始角度) 为 0，所以初始关节角度 = 偏移
+        float q1_deg = config_.offset_1;
+        float q2_deg = config_.offset_2;
+        float q3_deg = config_.offset_3;
 
         current_q1_ref_ = q1_deg;
         current_q2_ref_ = q2_deg;
@@ -137,13 +143,13 @@ namespace Arm
 
         // 3. 更新关节电机目标 (位置 + 前馈力矩)
         // setTarget 接受度数
-        // 电机目标角度 = 关节目标角度 * 减速比
+        // 电机目标角度 = (关节目标角度 - 偏移) * 减速比 + 初始角度
         // 电机前馈力矩 = 关节前馈力矩 / 减速比
-        joint1_.setTarget(current_q1_ref_ * config_.reduction_1, tau1_g / config_.reduction_1);
-        // joint2_.setTarget(current_q2_ref_ * config_.reduction_2, tau2_g / config_.reduction_2);
+        joint1_.setTarget((current_q1_ref_ - config_.offset_1) * config_.reduction_1 + motor1_init_pos_, tau1_g / config_.reduction_1);
+        // joint2_.setTarget((current_q2_ref_ - config_.offset_2) * config_.reduction_2 + motor2_init_pos_, tau2_g / config_.reduction_2);
 
-        joint2_.setTarget(current_q2_ref_ * config_.reduction_2, 0.0f);
-        joint3_.setTarget(current_q3_ref_ * config_.reduction_3, 0.0f);
+        joint2_.setTarget((current_q2_ref_ - config_.offset_2) * config_.reduction_2 + motor2_init_pos_, 0.0f);
+        joint3_.setTarget((current_q3_ref_ - config_.offset_3) * config_.reduction_3 + motor3_init_pos_, 0.0f);
 
         // 5. 执行底层控制更新
         joint1_.update();
@@ -153,32 +159,37 @@ namespace Arm
 
     void Controller::getEndEffectorPose(float& x, float& y, float& phi) const
     {
-        // 关节角度 = 电机角度 / 减速比
-        float q1 = (joint1_.getAngle() / config_.reduction_1); // 弧度
-        float q2 = (joint2_.getAngle() / config_.reduction_2); // 弧度
-        float q3 = (joint3_.getAngle() / config_.reduction_3); // 弧度
+        // 关节角度 = ((电机角度 - 初始角度) / 减速比) + 偏移
+        float q1 = ((joint1_.getAngle() - motor1_init_pos_) / config_.reduction_1) + config_.offset_1; // 度
+        float q2 = ((joint2_.getAngle() - motor2_init_pos_) / config_.reduction_2) + config_.offset_2; // 度
+        float q3 = ((joint3_.getAngle() - motor3_init_pos_) / config_.reduction_3) + config_.offset_3; // 度
+
+        // 转换为弧度用于三角函数计算
+        float q1_rad = q1 * DEG_TO_RAD;
+        float q2_rad = q2 * DEG_TO_RAD;
+        float q3_rad = q3 * DEG_TO_RAD;
 
         float l1 = config_.l1;
         float l2 = config_.l2;
 
         // 平面 2-DOF 机械臂
-        float q12  = q1 + q2;
-        float q123 = q1 + q2 + q3;
+        float q12  = q1_rad + q2_rad;
+        float q123 = q1_rad + q2_rad + q3_rad;
 
         // x = l1 * cosf(q1) + l2 * cosf(q12) + l3 * cosf(q123);
         // y = l1 * sinf(q1) + l2 * sinf(q12) + l3 * sinf(q123);
 
-        x   = l1 * cosf(q1) + l2 * cosf(q12);
-        y   = l1 * sinf(q1) + l2 * sinf(q12);
+        x   = l1 * cosf(q1_rad) + l2 * cosf(q12);
+        y   = l1 * sinf(q1_rad) + l2 * sinf(q12);
         phi = q123;
     }
 
     void Controller::getJointAngles(float& q1, float& q2, float& q3) const
     {
-        // 关节角度 = 电机角度 / 减速比
-        q1 = (joint1_.getAngle() / config_.reduction_1);
-        q2 = (joint2_.getAngle() / config_.reduction_2);
-        q3 = (joint3_.getAngle() / config_.reduction_3);
+        // 关节角度 = ((电机角度 - 初始角度) / 减速比) + 偏移
+        q1 = ((joint1_.getAngle() - motor1_init_pos_) / config_.reduction_1) + config_.offset_1;
+        q2 = ((joint2_.getAngle() - motor2_init_pos_) / config_.reduction_2) + config_.offset_2;
+        q3 = ((joint3_.getAngle() - motor3_init_pos_) / config_.reduction_3) + config_.offset_3;
     }
 
     void Controller::calculateGravityComp(float q1, float q2, float q3, float& tau1, float& tau2)

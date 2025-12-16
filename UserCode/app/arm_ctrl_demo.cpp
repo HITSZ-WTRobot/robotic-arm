@@ -91,6 +91,13 @@ void Init(void* argument)
     arm_cfg.reduction_2 = 5.728209412419938f; // 小臂减速比 (例如 M3508 减速比)
     arm_cfg.reduction_3 = 36.0f;              // 吸盘关节减速比 (M2006)
 
+    // 关节零位偏移 (Degree)
+    // 假设上电时大臂垂直地面 (90度)，小臂水平 (0度)
+    // 如果电机上电位置为 0，则 offset_1 = 90
+    arm_cfg.offset_1 = 0.0f;
+    arm_cfg.offset_2 = 10.0f;
+    arm_cfg.offset_3 = 0.0f;
+
     // 运动学限制 (Degree)
     arm_cfg.j1_max_vel  = 5.0f;
     arm_cfg.j1_max_acc  = 5.0f;
@@ -134,7 +141,7 @@ void MotorCtrl(void* argument)
         // 移动到位置 B
         if (robot_arm)
         {
-            robot_arm->setJointTarget(0.0f, 10.10f, 0.0f);
+            robot_arm->setJointTarget(0.0f, 10.0f, 0.0f);
         }
 
         osDelay(4000);

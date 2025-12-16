@@ -7,6 +7,8 @@
 #endif
 
 static constexpr float DEG_TO_RAD  = M_PI / 180.0f;
+static constexpr float RAD_TO_DEG  = 180.0f / M_PI;
+static constexpr float RPM_TO_DEGS = 6.0f; // 360 / 60
 static constexpr float RPM_TO_RADS = 2.0f * M_PI / 60.0f;
 
 namespace Arm
@@ -74,13 +76,13 @@ namespace Arm
 
     void Motor::setTarget(float angle, float torque_ff)
     {
-        target_angle_ = angle * DEG_TO_RAD;
+        target_angle_ = angle;
         feedforward_  = torque_ff;
     }
 
     void Motor::setVelocityTarget(float velocity)
     {
-        target_velocity_ = velocity * DEG_TO_RAD;
+        target_velocity_ = velocity;
     }
 
     void Motor::update()
@@ -129,14 +131,14 @@ namespace Arm
         if (type_ == MotorType::DJI)
         {
             DJI_t* dji        = static_cast<DJI_t*>(driver_);
-            current_angle_    = dji->abs_angle * DEG_TO_RAD;
-            current_velocity_ = dji->velocity * RPM_TO_RADS;
+            current_angle_    = dji->abs_angle;
+            current_velocity_ = dji->velocity * RPM_TO_DEGS;
         }
         else if (type_ == MotorType::Unitree)
         {
             ::UnitreeMotor* unitree = static_cast<::UnitreeMotor*>(driver_);
-            current_angle_          = unitree->m_data.Pos;
-            current_velocity_       = unitree->m_data.W;
+            current_angle_          = unitree->m_data.Pos * RAD_TO_DEG;
+            current_velocity_       = unitree->m_data.W * RAD_TO_DEG;
         }
     }
 
@@ -155,12 +157,12 @@ namespace Arm
             ::UnitreeMotor* unitree = static_cast<::UnitreeMotor*>(driver_);
             Unitree_UART_tranANDrev(unitree,
                                     id_,
-                                    10,            // Mode 10: FOC Closed Loop
-                                    output,        // T (Calculated Torque)
-                                    0.0f,          // W (Target Velocity)
-                                    target_angle_, // Pos (Target Position)
-                                    0.0f,          // K_P (Stiffness = 0)
-                                    0.0f           // K_W (Damping = 0)
+                                    10,                         // Mode 10: FOC Closed Loop
+                                    output,                     // T (Calculated Torque)
+                                    0.0f,                       // W (Target Velocity)
+                                    target_angle_ * DEG_TO_RAD, // Pos (Target Position) -> Convert back to Rad
+                                    0.0f,                       // K_P (Stiffness = 0)
+                                    0.0f                        // K_W (Damping = 0)
             );
         }
     }

@@ -74,12 +74,12 @@ namespace Arm
         void update();
 
         /**
-         * @brief 获取当前电机角度，单位：弧度
+         * @brief 获取当前电机角度，单位：度 (Degree)
          */
         float getAngle() const { return current_angle_; }
 
         /**
-         * @brief 获取当前电机速度，单位：弧度每秒
+         * @brief 获取当前电机速度，单位：度每秒 (Degree/s)
          */
         float getVelocity() const { return current_velocity_; }
 
