@@ -41,7 +41,8 @@ target_include_directories(user_modules INTERFACE
 )
 
 target_link_options(${CMAKE_PROJECT_NAME} PRIVATE
-    -u _printf_float
+    -Wl,-u,_printf_float
+    -Wl,-u,_scanf_float
 )
 
 # 将User源文件添加到主项目

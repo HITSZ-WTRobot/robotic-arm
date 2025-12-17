@@ -65,7 +65,7 @@ const osThreadAttr_t init_attributes = {
 osThreadId_t motorctrlHandle;
 const osThreadAttr_t motorctrl_attributes = {
   .name = "motorctrl",
-  .stack_size = 128 * 4,
+  .stack_size = 512 * 4,
   .priority = (osPriority_t) osPriorityHigh,
 };
 
