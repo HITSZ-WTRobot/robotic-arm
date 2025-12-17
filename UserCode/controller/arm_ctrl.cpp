@@ -105,18 +105,27 @@ namespace Arm
 
     void Controller::setJointTarget(float q1, float q2, float q3, float* t1, float* t2, float* t3)
     {
-        // 获取当前状态作为起点 (解决速度跳变问题)
-        // 使用当前规划器的输出作为起点可能比使用传感器反馈更平滑，
-        // 但如果偏差较大，使用反馈更安全。这里为了连续性，使用当前电机的实际反馈速度。
-        // 位置则使用当前规划的参考位置，避免因控制误差导致的轨迹回跳。
+        // 高频控制优化:
+        // 使用当前"规划器"的内部状态(cur_pos, cur_vel, cur_acc)作为新轨迹的起点。
+        // 1. 保证了位置、速度、加速度的连续性 (C2连续)，避免速度跳变。
+        // 2. 避免了传感器噪声(特别是速度噪声)进入规划层，防止轨迹抖动。
+        // 3. 增加判断：如果目标位置未发生改变，则跳过规划，节省计算资源。
 
-        traj_q1_.plan(traj_q1_.cur_pos, q1, traj_q1_.cur_vel, traj_q1_.cur_acc, config_.j1_max_vel, config_.j1_max_acc, config_.j1_max_jerk);
-        traj_q2_.plan(traj_q2_.cur_pos, q2, traj_q2_.cur_vel, traj_q2_.cur_acc, config_.j2_max_vel, config_.j2_max_acc, config_.j2_max_jerk);
-        traj_q3_.plan(traj_q3_.cur_pos, q3, traj_q3_.cur_vel, traj_q3_.cur_acc, config_.j3_max_vel, config_.j3_max_acc, config_.j3_max_jerk);
+        if (fabsf(q1 - traj_q1_.curve.xe) > 1e-4f)
+            traj_q1_.plan(traj_q1_.cur_pos, q1, traj_q1_.cur_vel, traj_q1_.cur_acc, config_.j1_max_vel, config_.j1_max_acc, config_.j1_max_jerk);
 
-        if (t1) *t1 = traj_q1_.curve.total_time;
-        if (t2) *t2 = traj_q2_.curve.total_time;
-        if (t3) *t3 = traj_q3_.curve.total_time;
+        if (fabsf(q2 - traj_q2_.curve.xe) > 1e-4f)
+            traj_q2_.plan(traj_q2_.cur_pos, q2, traj_q2_.cur_vel, traj_q2_.cur_acc, config_.j2_max_vel, config_.j2_max_acc, config_.j2_max_jerk);
+
+        if (fabsf(q3 - traj_q3_.curve.xe) > 1e-4f)
+            traj_q3_.plan(traj_q3_.cur_pos, q3, traj_q3_.cur_vel, traj_q3_.cur_acc, config_.j3_max_vel, config_.j3_max_acc, config_.j3_max_jerk);
+
+        if (t1)
+            *t1 = traj_q1_.curve.total_time;
+        if (t2)
+            *t2 = traj_q2_.curve.total_time;
+        if (t3)
+            *t3 = traj_q3_.curve.total_time;
     }
 
     bool Controller::isArrived() const
