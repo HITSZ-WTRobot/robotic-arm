@@ -1,5 +1,6 @@
 #include "arm_motor_if.h"
 #include <cmath>
+#include <cstdint>
 #include <cstring>
 
 #ifndef M_PI
@@ -9,121 +10,136 @@
 static constexpr float DEG_TO_RAD  = M_PI / 180.0f;
 static constexpr float RAD_TO_DEG  = 180.0f / M_PI;
 static constexpr float RPM_TO_DEGS = 6.0f; // 360 / 60
-static constexpr float RPM_TO_RADS = 2.0f * M_PI / 60.0f;
 
 namespace Arm
 {
 
     // ============================================================================
-    // Motor Implementation
+    // MotorCtrl Implementation
     // ============================================================================
 
     // DJI Constructor
-    Motor::Motor(DJI_t* driver, float torque_ratio, uint32_t pos_vel_ratio) :
-        type_(MotorType::DJI), driver_(driver), id_(0),
-        torque_ratio_(torque_ratio), pos_vel_ratio_(pos_vel_ratio), update_count_(0)
+    MotorCtrl::MotorCtrl(DJI_t* driver, ControlMode mode, float torque_ratio) :
+        type_(MotorType::DJI), mode_(mode), driver_(driver), id_(0),
+        torque_ratio_(torque_ratio), pos_vel_ratio_(1), update_count_(0)
     {
         std::memset(&pos_pid_, 0, sizeof(MotorPID_t));
         std::memset(&vel_pid_, 0, sizeof(MotorPID_t));
-        if (pos_vel_ratio_ == 0)
-            pos_vel_ratio_ = 1;
     }
 
     // Unitree Constructor
-    Motor::Motor(::UnitreeMotor* driver, uint8_t id, uint32_t pos_vel_ratio) :
-        type_(MotorType::Unitree), driver_(driver), id_(id),
-        torque_ratio_(1.0f), pos_vel_ratio_(pos_vel_ratio), update_count_(0)
+    MotorCtrl::MotorCtrl(::UnitreeMotor* driver, uint8_t id, ControlMode mode, float torque_ratio) :
+        type_(MotorType::Unitree), mode_(mode), driver_(driver), id_(id),
+        torque_ratio_(torque_ratio), pos_vel_ratio_(1), update_count_(0)
     {
         std::memset(&pos_pid_, 0, sizeof(MotorPID_t));
         std::memset(&vel_pid_, 0, sizeof(MotorPID_t));
-        if (pos_vel_ratio_ == 0)
-            pos_vel_ratio_ = 1;
     }
 
-    void Motor::setPID(float pos_kp, float pos_ki, float pos_kd, float pos_max_out,
-                       float vel_kp, float vel_ki, float vel_kd, float vel_max_out)
+    void MotorCtrl::SetCtrlParam(const MotorPID_Config_t& pos_config, const MotorPID_Config_t& vel_config, uint32_t pos_vel_ratio)
     {
-        mode_ = ControlMode::Position;
-
-        MotorPID_Config_t pos_config;
-        pos_config.Kp             = pos_kp;
-        pos_config.Ki             = pos_ki;
-        pos_config.Kd             = pos_kd;
-        pos_config.abs_output_max = pos_max_out;
         MotorPID_Init(&pos_pid_, pos_config);
-
-        MotorPID_Config_t vel_config;
-        vel_config.Kp             = vel_kp;
-        vel_config.Ki             = vel_ki;
-        vel_config.Kd             = vel_kd;
-        vel_config.abs_output_max = vel_max_out;
         MotorPID_Init(&vel_pid_, vel_config);
+        pos_vel_ratio_ = (pos_vel_ratio == 0) ? 1 : pos_vel_ratio;
     }
 
-    void Motor::setPID(float vel_kp, float vel_ki, float vel_kd, float vel_max_out)
+    void MotorCtrl::SetCtrlParam(const MotorPID_Config_t& vel_config)
     {
-        mode_ = ControlMode::Velocity;
-
         std::memset(&pos_pid_, 0, sizeof(MotorPID_t));
-
-        MotorPID_Config_t vel_config;
-        vel_config.Kp             = vel_kp;
-        vel_config.Ki             = vel_ki;
-        vel_config.Kd             = vel_kd;
-        vel_config.abs_output_max = vel_max_out;
         MotorPID_Init(&vel_pid_, vel_config);
+        pos_vel_ratio_ = 1;
     }
 
-    void Motor::setTarget(float angle, float torque_ff)
+    void MotorCtrl::setTarget(float primary_ref, float secondary_ref, float torque_ff)
     {
-        target_angle_ = angle;
-        feedforward_  = torque_ff;
+        primary_ref_   = primary_ref;
+        secondary_ref_ = secondary_ref;
+        torque_ff_     = torque_ff;
     }
 
-    void Motor::setVelocityTarget(float velocity)
-    {
-        target_velocity_ = velocity;
-    }
-
-    void Motor::update()
+    void MotorCtrl::update()
     {
         // 1. 更新反馈数据
         updateFeedback();
 
-        if (mode_ == ControlMode::Position)
+        float vel_target   = 0.0f;
+        float final_output = 0.0f;
+
+        switch (mode_)
         {
+        case ControlMode::PositionVelocityPID:
             // 2. 位置环计算 (降频)
             update_count_++;
             if (update_count_ >= pos_vel_ratio_)
             {
-                pos_pid_.ref = target_angle_;
+                pos_pid_.ref = primary_ref_; // Target Angle
                 pos_pid_.fdb = current_angle_;
                 MotorPID_Calculate(&pos_pid_);
                 update_count_ = 0;
             }
             // 速度环目标 = 位置环输出
-            vel_pid_.ref = pos_pid_.output;
-        }
-        else if (mode_ == ControlMode::Velocity)
-        {
-            // 速度环目标 = 用户设定值
-            vel_pid_.ref = target_velocity_;
+            vel_target = pos_pid_.output;
+
+            // 3. 速度环计算
+            vel_pid_.ref = vel_target;
+            vel_pid_.fdb = current_velocity_;
+            MotorPID_Calculate(&vel_pid_);
+
+            final_output = vel_pid_.output;
+            break;
+
+        case ControlMode::PositionPD_VelocityFF:
+            // 2. 位置环计算 (降频)
+            update_count_++;
+            if (update_count_ >= pos_vel_ratio_)
+            {
+                pos_pid_.ref = primary_ref_; // Target Angle
+                pos_pid_.fdb = current_angle_;
+                MotorPID_Calculate(&pos_pid_);
+                update_count_ = 0;
+            }
+            // 速度环目标 = 位置环输出 + 前馈速度
+            vel_target = pos_pid_.output + secondary_ref_;
+
+            // 3. 速度环计算
+            vel_pid_.ref = vel_target;
+            vel_pid_.fdb = current_velocity_;
+            MotorPID_Calculate(&vel_pid_);
+
+            final_output = vel_pid_.output;
+            break;
+
+        case ControlMode::VelocityPID:
+            // 速度环目标 = 用户设定值 (primary_ref)
+            vel_target = primary_ref_;
+
+            vel_pid_.ref = vel_target;
+            vel_pid_.fdb = current_velocity_;
+            MotorPID_Calculate(&vel_pid_);
+
+            final_output = vel_pid_.output;
+            break;
+
+        case ControlMode::DirectTorque:
+            final_output = primary_ref_; // primary_ref is torque
+            break;
+
+        case ControlMode::None:
+        default:
+            final_output = 0.0f;
+            break;
         }
 
-        // 3. 速度环计算
-        vel_pid_.fdb = current_velocity_;
-        MotorPID_Calculate(&vel_pid_);
-
-        // 4. 合成最终输出 (速度环输出 + 前馈力矩)
+        // 4. 合成最终输出 (PID输出 + 前馈力矩)
         // torque_ratio_ 用于将 Nm 转换为电机控制单位 (DJI: IQ, Unitree: Nm)
-        float ff_output    = feedforward_ * torque_ratio_;
-        float final_output = vel_pid_.output + ff_output;
+
+        float ctrl_value = final_output + torque_ff_ * torque_ratio_;
 
         // 5. 发送控制指令
-        outputControl(final_output);
+        outputControl(ctrl_value);
     }
 
-    void Motor::updateFeedback()
+    void MotorCtrl::updateFeedback()
     {
         if (!driver_)
             return;
@@ -142,7 +158,7 @@ namespace Arm
         }
     }
 
-    void Motor::outputControl(float output)
+    void MotorCtrl::outputControl(float output)
     {
         if (!driver_)
             return;
@@ -155,14 +171,25 @@ namespace Arm
         else if (type_ == MotorType::Unitree)
         {
             ::UnitreeMotor* unitree = static_cast<::UnitreeMotor*>(driver_);
+
+            float target_pos_rad = 0.0f;
+            if (mode_ == ControlMode::PositionVelocityPID || mode_ == ControlMode::PositionPD_VelocityFF)
+            {
+                target_pos_rad = primary_ref_ * DEG_TO_RAD;
+            }
+            else
+            {
+                target_pos_rad = current_angle_ * DEG_TO_RAD;
+            }
+
             Unitree_UART_tranANDrev(unitree,
                                     id_,
-                                    10,                         // Mode 10: FOC Closed Loop
-                                    output,                     // T (Calculated Torque)
-                                    0.0f,                       // W (Target Velocity)
-                                    target_angle_ * DEG_TO_RAD, // Pos (Target Position) -> Convert back to Rad
-                                    0.0f,                       // K_P (Stiffness = 0)
-                                    0.0f                        // K_W (Damping = 0)
+                                    1,              // Mode 1: FOC Closed Loop
+                                    output,         // T (Calculated Torque)
+                                    0.0f,           // W (Target Velocity)
+                                    target_pos_rad, // Pos (Target Position)
+                                    0.0f,           // K_P (Stiffness = 0)
+                                    0.0f            // K_W (Damping = 0)
             );
         }
     }
