@@ -23,6 +23,7 @@ namespace Arm
         type_(MotorType::DJI), mode_(mode), driver_(driver), id_(0),
         torque_ratio_(torque_ratio), pos_vel_ratio_(1), update_count_(0)
     {
+        // pos_pid_ and pos_pd_ share memory in union, so clearing the larger one is enough
         std::memset(&pos_pid_, 0, sizeof(MotorPID_t));
         std::memset(&vel_pid_, 0, sizeof(MotorPID_t));
     }
@@ -41,6 +42,13 @@ namespace Arm
         MotorPID_Init(&pos_pid_, pos_config);
         MotorPID_Init(&vel_pid_, vel_config);
         pos_vel_ratio_ = (pos_vel_ratio == 0) ? 1 : pos_vel_ratio;
+    }
+
+    void MotorCtrl::SetCtrlParam(const PD_Config_t& pos_config, const MotorPID_Config_t& vel_config)
+    {
+        PD_Init(&pos_pd_, &pos_config);
+        MotorPID_Init(&vel_pid_, vel_config);
+        pos_vel_ratio_ = 1; // PD control usually runs at same frequency or doesn't use the ratio logic in this implementation
     }
 
     void MotorCtrl::SetCtrlParam(const MotorPID_Config_t& vel_config)
@@ -89,17 +97,13 @@ namespace Arm
             break;
 
         case ControlMode::PositionPD_VelocityFF:
-            // 2. 位置环计算 (降频)
-            update_count_++;
-            if (update_count_ >= pos_vel_ratio_)
-            {
-                pos_pid_.ref = primary_ref_; // Target Angle
-                pos_pid_.fdb = current_angle_;
-                MotorPID_Calculate(&pos_pid_);
-                update_count_ = 0;
-            }
+            // 使用 PD 控制器，无降频
+            pos_pd_.ref = primary_ref_; // Target Angle
+            pos_pd_.fdb = current_angle_;
+            PD_Calculate(&pos_pd_);
+
             // 速度环目标 = 位置环输出 + 前馈速度
-            vel_target = pos_pid_.output + secondary_ref_;
+            vel_target = pos_pd_.output + secondary_ref_;
 
             // 3. 速度环计算
             vel_pid_.ref = vel_target;
@@ -134,7 +138,7 @@ namespace Arm
         // torque_ratio_ 用于将 Nm 转换为电机控制单位 (DJI: IQ, Unitree: Nm)
 
         float ctrl_value = final_output + torque_ff_ * torque_ratio_;
-
+        // float ctrl_value = torque_ff_ * torque_ratio_;
         // 5. 发送控制指令
         outputControl(ctrl_value);
     }
@@ -166,6 +170,21 @@ namespace Arm
         if (type_ == MotorType::DJI)
         {
             DJI_t* dji = static_cast<DJI_t*>(driver_);
+
+            // 安全限幅，防止 int16_t 溢出导致反转
+            float max_iq = 0.0f;
+            if (dji->motor_type == M3508_C620)
+                max_iq = (float)DJI_M3508_C620_IQ_MAX / 2;
+            else if (dji->motor_type == M2006_C610)
+                max_iq = (float)DJI_M2006_C610_IQ_MAX / 2;
+            else
+                max_iq = 10000.0f; // 默认安全值
+
+            if (output > max_iq)
+                output = max_iq;
+            if (output < -max_iq)
+                output = -max_iq;
+
             __DJI_SET_IQ_CMD(dji, output);
         }
         else if (type_ == MotorType::Unitree)

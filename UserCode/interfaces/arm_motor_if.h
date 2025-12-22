@@ -4,6 +4,7 @@
 #include "drivers/DJI.h"
 #include "drivers/Unitree_user.h"
 #include "libs/pid_motor.h"
+#include "libs/pid_pd.h"
 
 namespace Arm
 {
@@ -57,6 +58,13 @@ namespace Arm
         void SetCtrlParam(const MotorPID_Config_t& pos_config, const MotorPID_Config_t& vel_config, uint32_t pos_vel_ratio);
 
         /**
+         * @brief 设置 PD + PID 参数 (用于 PositionPD_VelocityFF)
+         * @param pos_config 位置环 PD 配置
+         * @param vel_config 速度环 PID 配置
+         */
+        void SetCtrlParam(const PD_Config_t& pos_config, const MotorPID_Config_t& vel_config);
+
+        /**
          * @brief 设置速度环 PID 参数 (用于 VelocityPID)
          * @param vel_config 速度环 PID 配置
          */
@@ -104,7 +112,11 @@ namespace Arm
         uint32_t pos_vel_ratio_ = 1;
         uint32_t update_count_  = 0;
 
-        MotorPID_t pos_pid_;
+        union
+        {
+            MotorPID_t pos_pid_;
+            PD_t pos_pd_;
+        };
         MotorPID_t vel_pid_;
 
         // 状态数据
