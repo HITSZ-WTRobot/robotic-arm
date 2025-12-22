@@ -157,8 +157,8 @@ namespace Arm
         else if (type_ == MotorType::Unitree)
         {
             ::UnitreeMotor* unitree = static_cast<::UnitreeMotor*>(driver_);
-            current_angle_          = unitree->m_data.Pos * RAD_TO_DEG;
-            current_velocity_       = unitree->m_data.W * RAD_TO_DEG;
+            current_angle_          = unitree->feedback.pos * RAD_TO_DEG;
+            current_velocity_       = unitree->feedback.speed * RAD_TO_DEG;
         }
     }
 
@@ -201,15 +201,15 @@ namespace Arm
                 target_pos_rad = current_angle_ * DEG_TO_RAD;
             }
 
-            Unitree_UART_tranANDrev(unitree,
-                                    id_,
-                                    1,              // Mode 1: FOC Closed Loop
-                                    output,         // T (Calculated Torque)
-                                    0.0f,           // W (Target Velocity)
-                                    target_pos_rad, // Pos (Target Position)
-                                    0.0f,           // K_P (Stiffness = 0)
-                                    0.0f            // K_W (Damping = 0)
+            Unitree_SetCmd(unitree,
+                           1,              // Mode 1: FOC Closed Loop
+                           output,         // T (Calculated Torque)
+                           0.0f,           // W (Target Velocity)
+                           target_pos_rad, // Pos (Target Position)
+                           0.0f,           // K_P (Stiffness = 0)
+                           0.0f            // K_W (Damping = 0)
             );
+            Unitree_SendCommand(unitree->config.huart);
         }
     }
 
