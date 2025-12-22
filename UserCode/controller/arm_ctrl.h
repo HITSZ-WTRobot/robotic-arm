@@ -20,10 +20,12 @@ namespace Arm
             // 连杆长度 (m)
             float l1; // 大臂长度
             float l2; // 小臂长度
+            float l3; // 吸盘长度
 
             // 连杆质心位置 (距离关节轴的距离, m)
             float lc1;
             float lc2;
+            float lc3;
 
             // 连杆质量 (kg)
             float m1;
@@ -66,7 +68,7 @@ namespace Arm
          * @param joint3 吸盘关节电机 (DJI 2006)
          * @param config 机械臂物理参数
          */
-        Controller(Motor& joint1, Motor& joint2, Motor& joint3, const Config& config);
+        Controller(MotorCtrl& joint1, MotorCtrl& joint2, MotorCtrl& joint3, const Config& config);
 
         /**
          * @brief 初始化控制器
@@ -117,6 +119,9 @@ namespace Arm
         struct SCurveTrajectory
         {
             SCurve_t curve;
+            SCurve_t pending_curve;
+            volatile bool update_needed;
+
             float current_time;
             bool running;
 
@@ -126,7 +131,7 @@ namespace Arm
             float cur_acc;
 
             SCurveTrajectory() :
-                current_time(0), running(false), cur_pos(0), cur_vel(0), cur_acc(0) {}
+                update_needed(false), current_time(0), running(false), cur_pos(0), cur_vel(0), cur_acc(0) {}
 
             void plan(float start_pos, float end_pos, float start_vel, float start_acc, float max_vel, float max_acc, float max_jerk);
             void step(float dt, float& pos, float& vel);
@@ -139,12 +144,13 @@ namespace Arm
          * @param q3 当前吸盘关节角度
          * @param tau1 [out] 大臂补偿力矩
          * @param tau2 [out] 小臂补偿力矩
+         * @param tau3 [out] 吸盘关节补偿力矩
          */
-        void calculateGravityComp(float q1, float q2, float q3, float& tau1, float& tau2);
+        void calculateGravityComp(float q1, float q2, float q3, float& tau1, float& tau2, float& tau3);
 
-        Motor& joint1_; // 大臂
-        Motor& joint2_; // 小臂
-        Motor& joint3_; // 吸盘关节
+        MotorCtrl& joint1_; // 大臂
+        MotorCtrl& joint2_; // 小臂
+        MotorCtrl& joint3_; // 吸盘关节
 
         Config config_;
 
