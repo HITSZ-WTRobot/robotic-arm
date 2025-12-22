@@ -29,8 +29,8 @@ static inline void RS485_Set_TX(UnitreeMotor* motor)
 {
     if (motor->config.rs485_gpio_port)
     {
+        // 高电平发送
         HAL_GPIO_WritePin(motor->config.rs485_gpio_port, motor->config.rs485_de_pin, GPIO_PIN_SET);
-        HAL_GPIO_WritePin(motor->config.rs485_gpio_port, motor->config.rs485_re_pin, GPIO_PIN_SET);
     }
 }
 
@@ -41,8 +41,8 @@ static inline void RS485_Set_RX(UnitreeMotor* motor)
 {
     if (motor->config.rs485_gpio_port)
     {
+        // 低电平接收
         HAL_GPIO_WritePin(motor->config.rs485_gpio_port, motor->config.rs485_de_pin, GPIO_PIN_RESET);
-        HAL_GPIO_WritePin(motor->config.rs485_gpio_port, motor->config.rs485_re_pin, GPIO_PIN_RESET);
     }
 }
 

@@ -1,18 +1,20 @@
 #include "app.h"
-
-
+// #include "libs/pid_pd.h"
 #include "stdio.h"
+#include "usart.h"
+
 
 #ifdef __cplusplus
 extern "C" {
 
-UnitreeMotor* g_motor = NULL;
+UnitreeMotor g_motor;
 
 DJI_t dji_3508;
 
 // 实例化电机
-Arm::Motor DJI(&dji_3508, 1000.0f, 5); // DJI: 需传力矩系数
-Arm::Motor Unitree(g_motor, 1, 5);     // Unitree: 需传ID
+Arm::MotorCtrl Unitree(&g_motor,
+                       Arm::ControlMode::PositionPD_VelocityFF, // 控制模式
+                       1);
 
 /**
  * 定时器回调函数，用于定时进行 PID 计算和 CAN 指令发送
@@ -20,36 +22,29 @@ Arm::Motor Unitree(g_motor, 1, 5);     // Unitree: 需传ID
  */
 void TIM_Callback(TIM_HandleTypeDef* htim)
 {
-    DJI.update();
-    Unitree.update();
+    // Unitree.update();
 
-    DJI_SendSetIqCommand(&hcan1, IQ_CMD_GROUP_1_4);
+    // DJI_SendSetIqCommand(&hcan1, IQ_CMD_GROUP_1_4);
     // DJI_SendSetIqCommand(&hcan1, IQ_CMD_GROUP_5_8);
+    Unitree_SendCommand(&huart1); // 发送宇树电机命令
 }
 
 void Motor_Control_Init()
 {
 
-    DJI_CAN_FilterInit(&hcan1, 0);
-
-    HAL_CAN_RegisterCallback(&hcan1, HAL_CAN_RX_FIFO0_MSG_PENDING_CB_ID, DJI_CAN_Fifo0ReceiveCallback);
-    // HAL_CAN_RegisterCallback(&hcan1, HAL_CAN_RX_FIFO1_MSG_PENDING_CB_ID, DJI_CAN_Fifo1ReceiveCallback);
-
-    CAN_Start(&hcan1, CAN_IT_RX_FIFO0_MSG_PENDING);
-    // CAN_Start(&hcan1, CAN_IT_RX_FIFO0_MSG_PENDING | CAN_IT_RX_FIFO1_MSG_PENDING);
-
-    DJI_Init(&dji_3508, (DJI_Config_t){
-                            .auto_zero  = false,      //< 是否在启动时自动清零角度
-                            .motor_type = M3508_C620, //< 电机类型
-                            .hcan       = &hcan1,     //< 电机挂载在的 CAN 句柄
-                            .id1        = 1,          //< 电调 ID (1~8)
-                        });
-
-
-    DJI.setPID(4.0f, 0.01f, 0.00f, 1000.0f,        // 位置环 PID 参数
-               30.0f, 0.001f, 5.00f, 8000.0f);     // 速度环 PID 参数
-    Unitree.setPID(4.0f, 0.01f, 0.00f, 10.0f,      // 位置环 PID 参数
-                   30.0f, 0.001f, 5.00f, 127.99f); // 速度环 PID 参数
+    Unitree.SetCtrlParam((PD_Config_t){
+                             .Kp             = 10.0f,
+                             .Kd             = 0.3f,
+                             .abs_output_max = 2000.0f,
+                         },
+                         (MotorPID_Config_t){
+                             .Kp             = 50.0f,
+                             .Ki             = 0.2f,
+                             .Kd             = 5.0f,
+                             .abs_output_max = 1000.0f,
+                         }); // 设置 PID 参数
+    HAL_UART_RegisterRxEventCallback(&huart1, Unitree_RxEventCallback);
+    HAL_UART_RegisterCallback(&huart1, HAL_UART_TX_COMPLETE_CB_ID, Unitree_TxCpltCallback);
 
     HAL_TIM_RegisterCallback(&htim6, HAL_TIM_PERIOD_ELAPSED_CB_ID, TIM_Callback);
     HAL_TIM_Base_Start_IT(&htim6);
@@ -57,13 +52,23 @@ void Motor_Control_Init()
 
 void Init(void* argument)
 {
-    g_motor = Unitree_Create_Motor();
-    if (Unitree_init(g_motor, &UART_UNITREE_HANDLER, ID) != HAL_OK)
-    {
-        Error_Handler();
-    }
-
-    Motor_Control_Init(); // 初始化电机
+    Unitree_Init(&g_motor, (Unitree_Config_t){
+                               .huart           = &huart1,
+                               .rs485_gpio_port = GPIOA,
+                               .rs485_de_pin    = GPIO_PIN_9,
+                               .id              = 0, // ID 为 0
+                               .reduction_rate  = 1.0f,
+                           });
+    Unitree_SetCmd(&g_motor,
+                   1,     // Mode 1: FOC Closed Loop
+                   0.01f, // T
+                   0.0f,  // W
+                   0.0f,  // Pos
+                   0.0f,  // K_P
+                   0.0f   // K_W
+    );
+    Unitree_SendCommand(&huart1); // 发送初始命令
+    // Motor_Control_Init(); // 初始化电机
     osThreadExit();
 }
 

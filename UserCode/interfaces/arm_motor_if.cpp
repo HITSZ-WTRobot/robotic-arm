@@ -20,7 +20,7 @@ namespace Arm
 
     // DJI Constructor
     MotorCtrl::MotorCtrl(DJI_t* driver, ControlMode mode, float torque_ratio) :
-        type_(MotorType::DJI), mode_(mode), driver_(driver), id_(0),
+        type_(MotorType::DJI), mode_(mode), driver_(driver),
         torque_ratio_(torque_ratio), pos_vel_ratio_(1), update_count_(0)
     {
         // pos_pid_ and pos_pd_ share memory in union, so clearing the larger one is enough
@@ -29,8 +29,8 @@ namespace Arm
     }
 
     // Unitree Constructor
-    MotorCtrl::MotorCtrl(::UnitreeMotor* driver, uint8_t id, ControlMode mode, float torque_ratio) :
-        type_(MotorType::Unitree), mode_(mode), driver_(driver), id_(id),
+    MotorCtrl::MotorCtrl(::UnitreeMotor* driver, ControlMode mode, float torque_ratio) :
+        type_(MotorType::Unitree), mode_(mode), driver_(driver),
         torque_ratio_(torque_ratio), pos_vel_ratio_(1), update_count_(0)
     {
         std::memset(&pos_pid_, 0, sizeof(MotorPID_t));
@@ -209,7 +209,6 @@ namespace Arm
                            0.0f,           // K_P (Stiffness = 0)
                            0.0f            // K_W (Damping = 0)
             );
-            Unitree_SendCommand(unitree->config.huart);
         }
     }
 

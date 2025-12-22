@@ -41,11 +41,10 @@ namespace Arm
         /**
          * @brief 构造 Unitree 电机实例
          * @param driver 宇树电机驱动句柄 (UnitreeMotor*)
-         * @param id 电机ID
          * @param mode 控制模式
          * @param torque_ratio 力矩系数 (通常为1.0, 但为了统一接口保留)
          */
-        MotorCtrl(::UnitreeMotor* driver, uint8_t id, ControlMode mode, float torque_ratio = 1.0f);
+        MotorCtrl(::UnitreeMotor* driver, ControlMode mode, float torque_ratio = 1.0f);
 
         ~MotorCtrl() = default;
 
@@ -107,7 +106,6 @@ namespace Arm
         MotorType type_;
         ControlMode mode_;
         void* driver_; // 泛型指针，指向 DJI_t 或 UnitreeMotor
-        uint8_t id_;   // 仅用于 Unitree
         float torque_ratio_;
         uint32_t pos_vel_ratio_ = 1;
         uint32_t update_count_  = 0;
