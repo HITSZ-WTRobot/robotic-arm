@@ -56,15 +56,20 @@ static void Unitree_PackData(UnitreeMotor* motor)
     tx->head[0] = 0xFE;
     tx->head[1] = 0xEE;
 
+    SATURATE(motor->config.id, 0, 15);
+    SATURATE(motor->mode, 0, 7);
+    SATURATE(motor->K_P, 0.0f, 25.599f);
+    SATURATE(motor->K_W, 0.0f, 25.599f);
+    SATURATE(motor->T, -127.99f, 127.99f);
+    SATURATE(motor->W, -804.00f, 804.00f);
+    SATURATE(motor->Pos, -411774.0f, 411774.0f);
+
     tx->mode.id     = motor->config.id;
     tx->mode.status = motor->mode;
     tx->mode.none   = 0;
 
     float kp_sat = motor->K_P;
     float kw_sat = motor->K_W;
-    SATURATE(kp_sat, 0.0f, 1.0f);
-    SATURATE(kw_sat, 0.0f, 1.0f);
-
     // 应用减速比和反转配置
     float ratio = motor->config.reduction_rate;
     float dir   = motor->config.reverse ? -1.0f : 1.0f;
@@ -85,7 +90,7 @@ static void Unitree_UnpackData(UnitreeMotor* motor)
 {
     MotorData_t* rx = &motor->rx_buffer;
 
-    if (rx->head[0] != 0xFE || rx->head[1] != 0xEE)
+    if (rx->head[0] != 0xFD || rx->head[1] != 0xEE)
     {
         return; // 包头错误
     }
@@ -193,10 +198,10 @@ void Unitree_RxEventCallback(UART_HandleTypeDef* huart, uint16_t Size)
     if (g_motor && g_motor->config.huart == huart && g_motor->waiting_for_reply)
     {
         // 检查数据长度是否符合预期
-        if (Size == sizeof(MotorData_t))
-        {
-            Unitree_UnpackData(g_motor);
-        }
+        // if (Size == sizeof(MotorData_t))
+        // {
+        Unitree_UnpackData(g_motor);
+        // }
         // 清除等待标志，释放总线
         g_motor->waiting_for_reply = false;
     }

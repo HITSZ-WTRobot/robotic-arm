@@ -1,5 +1,6 @@
 #include "app.h"
 // #include "libs/pid_pd.h"
+#include "cmsis_os2.h"
 #include "stdio.h"
 #include "usart.h"
 
@@ -43,29 +44,29 @@ void Motor_Control_Init()
                              .Kd             = 5.0f,
                              .abs_output_max = 1000.0f,
                          }); // 设置 PID 参数
+}
+
+void Init(void* argument)
+{
     HAL_UART_RegisterRxEventCallback(&huart1, Unitree_RxEventCallback);
     HAL_UART_RegisterCallback(&huart1, HAL_UART_TX_COMPLETE_CB_ID, Unitree_TxCpltCallback);
 
     HAL_TIM_RegisterCallback(&htim6, HAL_TIM_PERIOD_ELAPSED_CB_ID, TIM_Callback);
     HAL_TIM_Base_Start_IT(&htim6);
-}
-
-void Init(void* argument)
-{
     Unitree_Init(&g_motor, (Unitree_Config_t){
                                .huart           = &huart1,
                                .rs485_gpio_port = GPIOA,
-                               .rs485_de_pin    = GPIO_PIN_9,
-                               .id              = 0, // ID 为 0
+                               .rs485_de_pin    = GPIO_PIN_8,
+                               .id              = 2, // ID 为 0
                                .reduction_rate  = 1.0f,
                            });
     Unitree_SetCmd(&g_motor,
-                   1,     // Mode 1: FOC Closed Loop
-                   0.01f, // T
-                   0.0f,  // W
-                   0.0f,  // Pos
-                   0.0f,  // K_P
-                   0.0f   // K_W
+                   1,    // Mode 1: FOC Closed Loop
+                   0.0f, // T
+                   1.0f, // W
+                   0.0f, // Pos
+                   0.0f, // K_P
+                   0.1f  // K_W
     );
     Unitree_SendCommand(&huart1); // 发送初始命令
     // Motor_Control_Init(); // 初始化电机
@@ -78,13 +79,14 @@ void MotorCtrl(void* argument)
 
     for (;;)
     {
-        Unitree.setTarget(10, 0.0f);
+        // Unitree.setTarget(10, 0.0f);
 
-        osDelay(1000);
+        // osDelay(1000);
 
-        Unitree.setTarget(-10, 0.0f);
+        // Unitree.setTarget(-10, 0.0f);
 
-        osDelay(1000);
+        // osDelay(1000);
+        osDelay(10);
     }
 }
 }
