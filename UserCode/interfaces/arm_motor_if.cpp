@@ -157,8 +157,8 @@ namespace Arm
         else if (type_ == MotorType::Unitree)
         {
             ::UnitreeMotor* unitree = static_cast<::UnitreeMotor*>(driver_);
-            current_angle_          = unitree->feedback.pos * RAD_TO_DEG;
-            current_velocity_       = unitree->feedback.speed * RAD_TO_DEG;
+            current_angle_          = unitree->recv.Pos * RAD_TO_DEG;
+            current_velocity_       = unitree->recv.W * RAD_TO_DEG;
         }
     }
 

@@ -88,29 +88,39 @@ static void Unitree_PackData(UnitreeMotor* motor)
  */
 static void Unitree_UnpackData(UnitreeMotor* motor)
 {
-    MotorData_t* rx = &motor->rx_buffer;
+    MOTOR_recv* motor_r = &motor->recv;
 
-    if (rx->head[0] != 0xFD || rx->head[1] != 0xEE)
+    // 校验包头
+    if (motor_r->motor_recv_data.head[0] != 0xFD || motor_r->motor_recv_data.head[1] != 0xEE)
     {
-        return; // 包头错误
+        motor_r->correct = 0;
+        return;
     }
 
-    if (rx->CRC16 != crc_ccitt(0, (uint8_t*)rx, 14))
+    // 校验 CRC
+    if (motor_r->motor_recv_data.CRC16 !=
+        crc_ccitt(0, (uint8_t*)&motor_r->motor_recv_data, 14))
     {
-        return; // CRC 错误
+        motor_r->correct = 0;
+        return;
     }
 
+    motor_r->motor_id = motor_r->motor_recv_data.mode.id;
+    motor_r->mode     = motor_r->motor_recv_data.mode.status;
+    motor_r->Temp     = motor_r->motor_recv_data.fbk.temp;
+    motor_r->MError   = motor_r->motor_recv_data.fbk.MError;
+
+    // 应用减速比和反转
     float ratio = motor->config.reduction_rate;
     float dir   = motor->config.reverse ? -1.0f : 1.0f;
 
-    motor->feedback.torque = (float)rx->fbk.torque / UNITREE_TOR_SCALE * ratio * dir;
-    motor->feedback.speed  = (float)rx->fbk.speed / UNITREE_SPD_SCALE / ratio * dir;
-    motor->feedback.pos    = (float)rx->fbk.pos / UNITREE_POS_SCALE / ratio * dir;
-    motor->feedback.temp   = rx->fbk.temp;
-    motor->feedback.error  = rx->fbk.MError;
+    motor_r->T   = (float)motor_r->motor_recv_data.fbk.torque / UNITREE_TOR_SCALE * ratio * dir;
+    motor_r->W   = (float)motor_r->motor_recv_data.fbk.speed / UNITREE_SPD_SCALE / ratio * dir;
+    motor_r->Pos = (float)motor_r->motor_recv_data.fbk.pos / UNITREE_POS_SCALE / ratio * dir;
 
-    motor->feedback.connected = true;
-    motor->feedback.rx_count++;
+    motor_r->footForce = (float)motor_r->motor_recv_data.fbk.force;
+    motor_r->correct   = 1;
+    motor_r->total_count++;
 }
 
 void Unitree_Init(UnitreeMotor* motor, Unitree_Config_t config)
@@ -124,7 +134,7 @@ void Unitree_Init(UnitreeMotor* motor, Unitree_Config_t config)
     // 默认参数
     if (motor->config.reduction_rate == 0.0f)
     {
-        motor->config.reduction_rate = 1.0f;
+        motor->config.reduction_rate = 6.33f;
     }
 
     // 注册为全局单实例
@@ -188,7 +198,7 @@ void Unitree_TxCpltCallback(UART_HandleTypeDef* huart)
 
         // 启动 DMA 接收 (使用 Idle 中断)
         // 注意：这里启动接收，等待电机回复
-        HAL_UARTEx_ReceiveToIdle_DMA(huart, (uint8_t*)&g_motor->rx_buffer, sizeof(MotorData_t));
+        HAL_UARTEx_ReceiveToIdle_DMA(huart, (uint8_t*)&g_motor->recv.motor_recv_data, sizeof(MotorData_t));
     }
 }
 
@@ -197,6 +207,9 @@ void Unitree_RxEventCallback(UART_HandleTypeDef* huart, uint16_t Size)
     // 仅处理注册的全局电机实例
     if (g_motor && g_motor->config.huart == huart && g_motor->waiting_for_reply)
     {
+        // 记录接收到的长度
+        g_motor->recv.hex_len = Size;
+
         // 检查数据长度是否符合预期
         // if (Size == sizeof(MotorData_t))
         // {
