@@ -25,7 +25,6 @@
 
 #include <stdbool.h>
 #include <stdint.h>
-#include <sys/types.h>
 #include "main.h"
 
 #ifdef __cplusplus
@@ -85,24 +84,36 @@ typedef struct
     uint16_t CRC16;
 } MotorData_t;
 
+
 #pragma pack()
 
+// 电机反馈数据结构体
 typedef struct
 {
-    MotorData_t motor_recv_data; // 电机反馈数据结构体
-    int hex_len;                 // 接收数据长度
-    long long resv_time;         // 接收时间(us)
-    int correct;                 // 数据校验结果
-    unsigned char motor_id;      // 电机ID
-    unsigned char mode;          // 电机工作模式
-    int Temp;                    // 电机温度
-    unsigned char MError;        // 电机错误码
-    float T;                     // 当前实际扭矩
-    float W;                     // 当前实际速度
-    float Pos;                   // 当前实际位置
-    float footForce;             // 传感器力反馈
-    uint32_t total_count;        // 接收计数
+    MotorData_t motor_recv_data;    // 电机反馈数据结构体
+    int hex_len;                    // 接收数据长度，通常为78字节
+    long long resv_time;            // 接收时间，单位为微秒（us）
+    int correct;                    // 数据校验结果，1表示成功，0表示失败
+    unsigned char motor_id;         // 电机ID
+    unsigned char mode;             // 电机工作模式
+    int Temp;                       // 电机温度
+    unsigned char MError;           // 电机错误码
+    float T;                        // 当前实际扭矩
+    float W;                        // speed 当前实际速度
+    float Pos;                      // 当前实际位置
+    float footForce;                // 传感器力反馈，单位：12位
 } MOTOR_recv;
+
+
+
+
+
+
+
+
+
+
+
 
 // 电机配置结构体
 typedef struct
@@ -129,12 +140,24 @@ typedef struct UnitreeMotor
     float K_P;    // 刚度系数 (0.0 - 1.0)
     float K_W;    // 阻尼系数 (0.0 - 1.0)
 
-    // 反馈输出 (使用 MOTOR_recv 结构)
-    MOTOR_recv recv;
+    // 反馈输出 (物理单位)
+    struct
+    {
+        float torque;      // 实际扭矩 (Nm)
+        float speed;       // 实际速度 (rad/s)
+        float pos;         // 实际位置 (rad)
+        int8_t temp;       // 温度 (℃)
+        uint8_t error;     // 错误码
+        bool connected;    // 连接状态
+        uint32_t rx_count; // 接收计数
+        uint32_t error_count; // 错误计数
+    } feedback;
+
+    
 
     // 内部缓冲区
     ControlData_t tx_buffer;
-    // MotorData_t rx_buffer; // 已包含在 recv 中
+    MOTOR_recv rx_buffer;
 
     // 状态标志
     volatile bool waiting_for_reply; // 标记是否正在等待回复

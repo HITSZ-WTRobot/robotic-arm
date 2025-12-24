@@ -33,8 +33,8 @@ void Motor_Control_Init()
     // Kp, Ki, Kd, MaxOutput
     // 请根据实际电机响应进行调节
     Unitree.SetCtrlParam((MotorPID_Config_t){
-        .Kp             = 0.5f,  // 比例系数
-        .Ki             = 0.01f, // 积分系数
+        .Kp             = 0.005f,  // 比例系数
+        .Ki             = 0.0f, // 积分系数
         .Kd             = 0.0f,  // 微分系数
         .abs_output_max = 5.0f,  // 输出限幅 (Nm)
     });
@@ -72,7 +72,7 @@ void MotorCtrl(void* argument)
     {
         // 设置目标速度 (单位: degree/s)
         // 360 degree/s = 60 RPM
-        Unitree.setTarget(360.0f);
+        Unitree.setTarget(36.0f);
 
         osDelay(5000);
 
@@ -81,15 +81,7 @@ void MotorCtrl(void* argument)
 
         osDelay(2000);
 
-        // 反转
-        Unitree.setTarget(-360.0f);
-
-        osDelay(5000);
-
-        // 停止
-        Unitree.setTarget(0.0f);
-
-        osDelay(2000);
+        
     }
 }
 }
