@@ -5,6 +5,8 @@
 #include "drivers/DJI.h"
 #include "interfaces/arm_motor_if.h"
 #include "libs/pid_motor.h"
+#include "stm32f407xx.h"
+#include "stm32f4xx_hal_gpio.h"
 #include "stm32f4xx_hal_uart.h"
 
 
@@ -20,6 +22,7 @@ static volatile uint16_t uart3_rx_len = 0;
 DJI_t dji_motor_driver;
 DJI_t dji_gripper;
 UnitreeMotor unitree_motor_driver;
+XGZP6847D pressure_sensor(&hi2c1, 200.0f);
 
 Arm::MotorCtrl* joint1_motor  = NULL;
 Arm::MotorCtrl* joint2_motor  = NULL;
@@ -54,9 +57,8 @@ void TIM_Callback(TIM_HandleTypeDef* htim)
     // 发送 CAN 指令 (DJI)
     DJI_SendSetIqCommand(&hcan1, IQ_CMD_GROUP_1_4);
     DJI_SendSetIqCommand(&hcan1, IQ_CMD_GROUP_5_8);
-    // Unitree 的发送通常在 update 内部或单独处理，取决于您的驱动实现
-    // 如果 Unitree 需要单独发送函数，请在这里调用，例如:
-    // Unitree_SendCmd(unitree_motor_driver);
+    // Unitree 的发送
+    Unitree_SendCommand(&unitree_motor_driver);
 }
 
 void Init(void* argument)
@@ -93,19 +95,16 @@ void Init(void* argument)
     //     osDelay(10);
     // }
 
-    // 初始化 Unitree 驱动
-    // unitree_motor_driver = Unitree_Create_Motor();
-    // Unitree_init(unitree_motor_driver, &UART_UNITREE_HANDLER, 1);
-    // 注册宇树 UART 回调
+    // 注册 UART 回调
     HAL_UART_RegisterRxEventCallback(&huart1, Unitree_RxEventCallback);
     HAL_UART_RegisterCallback(&huart1, HAL_UART_TX_COMPLETE_CB_ID, Unitree_TxCpltCallback);
 
+    // 初始化 Unitree 驱动
     Unitree_Init(&unitree_motor_driver, (Unitree_Config_t){
                                             .huart           = &huart1,
                                             .rs485_gpio_port = GPIOA,
-                                            .rs485_de_pin    = GPIO_PIN_9,
-                                            .id              = 0, // ID 为 0
-                                            .reduction_rate  = 1.0f,
+                                            .rs485_de_pin    = GPIO_PIN_8,
+                                            .id              = 2, // ID 为 2
                                         });
     // 2. 实例化电机接口
     // 大臂 (Unitree)
@@ -116,11 +115,9 @@ void Init(void* argument)
                         .abs_output_max = 2000.0f,
                     },
                     (MotorPID_Config_t){
-                        .Kp             = 50.0f,
-                        .Ki             = 0.2f,
-                        .Kd             = 5.0f,
-                        .abs_output_max = 1000.0f,
-                    }); // 设置 PID
+                        .Kp = 50.0f, .Ki = 0.2f, .Kd = 5.0f,
+                        .abs_output_max = 60.0f, // 降低一半处理
+                    });                          // 设置 PID
     joint1_motor = &m1;
 
     // 小臂 (DJI)
@@ -213,6 +210,7 @@ void MotorCtrl(void* argument)
 
     char tx_buf[64];
 
+    int vacuum_state = 0;
     for (;;)
     {
         // 1. 处理接收到的数据
@@ -224,14 +222,16 @@ void MotorCtrl(void* argument)
             else
                 uart3_rx_buf[sizeof(uart3_rx_buf) - 1] = 0;
 
-            // 解析 CSV: 45.5, 30.0, 0.0
+            // 解析 CSV: 45.5, 30.0, 0.0, 1
             // 注意: sscanf 会自动跳过空白字符，但逗号需要显式匹配
-            if (sscanf((char*)uart3_rx_buf, "%f, %f, %f", &q1, &q2, &q3) == 3)
+            if (sscanf((char*)uart3_rx_buf, "%f, %f, %f, %d", &q1, &q2, &q3, &vacuum_state) == 4)
             {
                 if (robot_arm)
                 {
                     robot_arm->setJointTarget(q1, q2, q3);
                 }
+                HAL_GPIO_WritePin(GPIOE, GPIO_PIN_6, (GPIO_PinState)vacuum_state);
+                HAL_GPIO_WritePin(GPIOB, GPIO_PIN_9, (GPIO_PinState)vacuum_state);
             }
 
             uart3_rx_flag = false;
@@ -245,13 +245,10 @@ void MotorCtrl(void* argument)
             float cur_q1, cur_q2, cur_q3;
             robot_arm->getJointAngles(cur_q1, cur_q2, cur_q3);
 
-            int len = sprintf(tx_buf, "%.2f, %.2f, %.2f\n", cur_q1, cur_q2, cur_q3);
+            float pressure_kpa = pressure_sensor.readPressure() / 1000.0f;
+            int len            = sprintf(tx_buf, "%.2f, %.2f, %.2f, %.2f\n", cur_q1, cur_q2, cur_q3, pressure_kpa);
 
-            // 检查发送状态，避免重入或覆盖
-            // if (HAL_UART_GetState(&UART_PC_HANDLER) == HAL_UART_STATE_READY)
-            // {
             HAL_UART_Transmit_DMA(&UART_PC_HANDLER, (uint8_t*)tx_buf, len);
-            // }
         }
 
         osDelay(50); // 20Hz 刷新率
