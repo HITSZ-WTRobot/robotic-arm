@@ -17,8 +17,7 @@
 //
 
 // XGZP6847D 类构造函数
-XGZP6847D::XGZP6847D(I2C_HandleTypeDef* hi2c, float Pressure_Range) :
-    _i2c(hi2c)
+XGZP6847D::XGZP6847D(I2C_HandleTypeDef* hi2c, float Pressure_Range)
 {
     _hi2c = hi2c;
     // 根据压力量程 (kPa) 选择 _K 值
@@ -68,34 +67,29 @@ XGZP6847D::XGZP6847D(I2C_HandleTypeDef* hi2c, float Pressure_Range) :
 float XGZP6847D::readPressure()
 {
     int pressure;
-    _i2c.beginTransmission(SENSOR_ADDRESS); // 开始与传感器的 I2C 通信
-    _i2c.write(0x30);                       // 发送 0x30 指示进行组合转换
-    _i2c.write(0x0A);                       // 发送 0x0A（更多测量模式，参见传感器文档）
-    _i2c.endTransmission();                 // 结束 I2C 发送
+    uint8_t cmd = 0x0A;
+    // 发送 0x30 指示进行组合转换, 发送 0x0A
+    HAL_I2C_Mem_Write(_hi2c, SENSOR_ADDRESS << 1, 0x30, I2C_MEMADD_SIZE_8BIT, &cmd, 1, 100);
 
     // 等待转换完成
+    uint8_t status = 0;
     while (true)
     {
-        _i2c.requestFrom((uint8_t)XGZP6847D::SENSOR_ADDRESS, (uint8_t)1);
-        uint8_t status = _i2c.read();
+        // 读取状态寄存器 0x30
+        HAL_I2C_Mem_Read(_hi2c, SENSOR_ADDRESS << 1, 0x30, I2C_MEMADD_SIZE_8BIT, &status, 1, 100);
         if ((status & 0x08) == 0)
         {
             break;
         }
     }
 
-    // 发起 I2C 传输读取压力数据（如需请替换 PRESSURE_REG 为实际寄存器地址）
-    _i2c.beginTransmission(XGZP6847D::SENSOR_ADDRESS);
-    _i2c.write(PRESSURE_REG);    // 发送命令读取压力寄存器
-    _i2c.endTransmission(false); // 不发送停止位以便后续连续读取
-
-    // 请求压力数据（3 字节）
-    _i2c.requestFrom((uint8_t)XGZP6847D::SENSOR_ADDRESS, (uint8_t)3);
-    if (_i2c.available() == 3)
+    uint8_t data[3];
+    // 读取压力数据（3 字节）
+    if (HAL_I2C_Mem_Read(_hi2c, SENSOR_ADDRESS << 1, PRESSURE_REG, I2C_MEMADD_SIZE_8BIT, data, 3, 100) == HAL_OK)
     {
-        uint8_t pressure_H = _i2c.read(); // 读取高字节
-        uint8_t pressure_M = _i2c.read(); // 读取中字节
-        uint8_t pressure_L = _i2c.read(); // 读取低字节
+        uint8_t pressure_H = data[0]; // 读取高字节
+        uint8_t pressure_M = data[1]; // 读取中字节
+        uint8_t pressure_L = data[2]; // 读取低字节
 
         // 将三个字节转换成原始压力值
         long int rawData = pressure_H * 65536 + pressure_M * 256 + pressure_L;
@@ -121,17 +115,12 @@ float XGZP6847D::readPressure()
 // 读取温度：摄氏度
 float XGZP6847D::readTemperature()
 {
-    // 发起 I2C 传输读取温度数据（如需请替换 TEMPERATURE_REG 为实际寄存器地址）
-    _i2c.beginTransmission(XGZP6847D::SENSOR_ADDRESS);
-    _i2c.write(TEMPERATURE_REG); // 发送命令读取温度寄存器
-    _i2c.endTransmission();
-
-    // 请求温度数据（2 字节）
-    _i2c.requestFrom((uint8_t)XGZP6847D::SENSOR_ADDRESS, (uint8_t)2);
-    if (_i2c.available() == 2)
+    uint8_t data[2];
+    // 读取温度数据（2 字节）
+    if (HAL_I2C_Mem_Read(_hi2c, SENSOR_ADDRESS << 1, TEMPERATURE_REG, I2C_MEMADD_SIZE_8BIT, data, 2, 100) == HAL_OK)
     {
-        uint8_t temperature_H = _i2c.read(); // 读取高字节
-        uint8_t temperature_L = _i2c.read(); // 读取低字节
+        uint8_t temperature_H = data[0]; // 读取高字节
+        uint8_t temperature_L = data[1]; // 读取低字节
 
         // 将两个字节转换成原始温度值
         long int rawData = ((long)temperature_H << 8) | temperature_L;
