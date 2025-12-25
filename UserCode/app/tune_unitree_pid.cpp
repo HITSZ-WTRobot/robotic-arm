@@ -24,7 +24,7 @@ void TIM_Callback(TIM_HandleTypeDef* htim)
     Unitree.update();
 
     // 发送宇树电机命令 (通过串口发送)
-    Unitree_SendCommand(&huart1);
+    Unitree_SendCommand(&g_motor);
 }
 
 void Motor_Control_Init()
@@ -33,10 +33,10 @@ void Motor_Control_Init()
     // Kp, Ki, Kd, MaxOutput
     // 请根据实际电机响应进行调节
     Unitree.SetCtrlParam((MotorPID_Config_t){
-        .Kp             = 1.0f,  // 比例系数
+        .Kp             = 1.0f,   // 比例系数
         .Ki             = 0.002f, // 积分系数
-        .Kd             = 0.3f,  // 微分系数
-        .abs_output_max = 5.0f,  // 输出限幅 (Nm)
+        .Kd             = 0.3f,   // 微分系数
+        .abs_output_max = 5.0f,   // 输出限幅 (Nm)
     });
 }
 
@@ -56,7 +56,7 @@ void Init(void* argument)
                                .huart           = &huart1,
                                .rs485_gpio_port = GPIOA,
                                .rs485_de_pin    = GPIO_PIN_8,
-                               .id              = 2, // ID 为 2
+                               .id              = 2,     // ID 为 2
                                .reduction_rate  = 6.33f, // 减速比 6.33
                            });
 
@@ -82,15 +82,15 @@ void Init(void* argument)
 
 //         osDelay(5000);
 
-        
+
 //     }
 // }
 
 
 void MotorCtrl(void* argument)
 {
-    float current_vel = 0.0f;
-    const float ramp_step = 0.3f;
+    float current_vel         = 0.0f;
+    const float ramp_step     = 0.3f;
     const uint32_t ramp_delay = 2;
 
     for (;;)
@@ -101,7 +101,8 @@ void MotorCtrl(void* argument)
         while (current_vel < 18.0f)
         {
             current_vel += ramp_step;
-            if (current_vel > 18.0f) current_vel = 18.0f;
+            if (current_vel > 18.0f)
+                current_vel = 18.0f;
             Unitree.setTarget(current_vel);
             osDelay(ramp_delay);
         }
@@ -112,7 +113,8 @@ void MotorCtrl(void* argument)
         while (current_vel > 0.0f)
         {
             current_vel -= ramp_step;
-            if (current_vel < 0.0f) current_vel = 0.0f;
+            if (current_vel < 0.0f)
+                current_vel = 0.0f;
             Unitree.setTarget(current_vel);
             osDelay(ramp_delay);
         }
@@ -120,7 +122,5 @@ void MotorCtrl(void* argument)
         osDelay(2000);
     }
 }
-
-
 }
 #endif
