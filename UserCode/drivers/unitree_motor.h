@@ -150,7 +150,8 @@ typedef struct UnitreeMotor
         uint8_t error;     // 错误码
         bool connected;    // 连接状态
         uint32_t rx_count; // 接收计数
-        uint32_t error_count; // 错误计数
+        uint32_t error_count_crc; // 错误计数
+        uint32_t error_count_head; // 帧错误计数
     } feedback;
 
     

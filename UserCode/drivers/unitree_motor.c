@@ -90,13 +90,13 @@ static void Unitree_UnpackData(UnitreeMotor* motor)
 {
     if (motor->rx_buffer.motor_recv_data.head[0] != 0xFD || motor->rx_buffer.motor_recv_data.head[1] != 0xEE)
     {
-        // motor->feedback.error_count++;
+        motor->feedback.error_count_head++;
         return; // 包头错误
     }
 
     if (motor->rx_buffer.motor_recv_data.CRC16 != crc_ccitt(0, (uint8_t*)&motor->rx_buffer.motor_recv_data, 14))
     {
-        motor->feedback.error_count++;
+        motor->feedback.error_count_crc++;
         return; // CRC 错误
     }
 
