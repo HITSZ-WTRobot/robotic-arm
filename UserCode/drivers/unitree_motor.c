@@ -121,7 +121,7 @@ static void Unitree_UnpackData(UnitreeMotor* motor)
 
     // if (rx->CRC16 != crc_ccitt(0, (uint8_t*)rx, 14))
     // {
-        
+
     //     // motor->feedback.error_count++;
     //     return; // CRC 错误
     // }
@@ -173,34 +173,34 @@ void Unitree_SetCmd(UnitreeMotor* motor, uint8_t mode, float torque, float speed
     Unitree_PackData(motor);
 }
 
-void Unitree_SendCommand(UART_HandleTypeDef* huart)
+void Unitree_SendCommand(UnitreeMotor* motor)
 {
-    // 检查全局电机实例是否匹配该串口
-    if (!g_motor || g_motor->config.huart != huart)
+    // 检查电机实例和串口配置
+    if (!motor || !motor->config.huart)
     {
         return;
     }
 
     // 检查是否正在等待回复 (避免重入或冲突)
-    if (g_motor->waiting_for_reply)
+    if (motor->waiting_for_reply)
     {
         return;
     }
 
     // 切换发送模式
-    RS485_Set_TX(g_motor);
+    RS485_Set_TX(motor);
 
     // 标记为等待回复
-    g_motor->waiting_for_reply = true;
+    motor->waiting_for_reply = true;
 
     // 启动 DMA 发送
     // 注意：必须在发送完成中断(TxCplt)中切换回接收模式
-    HAL_StatusTypeDef status = HAL_UART_Transmit_DMA(g_motor->config.huart, (uint8_t*)&g_motor->tx_buffer, sizeof(ControlData_t));
+    HAL_StatusTypeDef status = HAL_UART_Transmit_DMA(motor->config.huart, (uint8_t*)&motor->tx_buffer, sizeof(ControlData_t));
 
     if (status != HAL_OK)
     {
-        g_motor->waiting_for_reply = false; // 发送失败，清除标志
-        RS485_Set_RX(g_motor);              // 恢复接收模式以防万一
+        motor->waiting_for_reply = false; // 发送失败，清除标志
+        RS485_Set_RX(motor);              // 恢复接收模式以防万一
     }
 }
 

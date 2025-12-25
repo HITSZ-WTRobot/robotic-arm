@@ -90,29 +90,19 @@ typedef struct
 // 电机反馈数据结构体
 typedef struct
 {
-    MotorData_t motor_recv_data;    // 电机反馈数据结构体
-    int hex_len;                    // 接收数据长度，通常为78字节
-    long long resv_time;            // 接收时间，单位为微秒（us）
-    int correct;                    // 数据校验结果，1表示成功，0表示失败
-    unsigned char motor_id;         // 电机ID
-    unsigned char mode;             // 电机工作模式
-    int Temp;                       // 电机温度
-    unsigned char MError;           // 电机错误码
-    float T;                        // 当前实际扭矩
-    float W;                        // speed 当前实际速度
-    float Pos;                      // 当前实际位置
-    float footForce;                // 传感器力反馈，单位：12位
+    MotorData_t motor_recv_data; // 电机反馈数据结构体
+    int hex_len;                 // 接收数据长度，通常为78字节
+    long long resv_time;         // 接收时间，单位为微秒（us）
+    int correct;                 // 数据校验结果，1表示成功，0表示失败
+    unsigned char motor_id;      // 电机ID
+    unsigned char mode;          // 电机工作模式
+    int Temp;                    // 电机温度
+    unsigned char MError;        // 电机错误码
+    float T;                     // 当前实际扭矩
+    float W;                     // speed 当前实际速度
+    float Pos;                   // 当前实际位置
+    float footForce;             // 传感器力反馈，单位：12位
 } MOTOR_recv;
-
-
-
-
-
-
-
-
-
-
 
 
 // 电机配置结构体
@@ -143,18 +133,17 @@ typedef struct UnitreeMotor
     // 反馈输出 (物理单位)
     struct
     {
-        float torque;      // 实际扭矩 (Nm)
-        float speed;       // 实际速度 (rad/s)
-        float pos;         // 实际位置 (rad)
-        int8_t temp;       // 温度 (℃)
-        uint8_t error;     // 错误码
-        bool connected;    // 连接状态
-        uint32_t rx_count; // 接收计数
-        uint32_t error_count_crc; // 错误计数
+        float torque;              // 实际扭矩 (Nm)
+        float speed;               // 实际速度 (rad/s)
+        float pos;                 // 实际位置 (rad)
+        int8_t temp;               // 温度 (℃)
+        uint8_t error;             // 错误码
+        bool connected;            // 连接状态
+        uint32_t rx_count;         // 接收计数
+        uint32_t error_count_crc;  // 错误计数
         uint32_t error_count_head; // 帧错误计数
     } feedback;
 
-    
 
     // 内部缓冲区
     ControlData_t tx_buffer;
@@ -193,7 +182,7 @@ void Unitree_SetCmd(UnitreeMotor* motor, uint8_t mode, float torque, float speed
  * @brief 发送控制指令 (通过 UART 句柄查找电机并发送)
  * @param huart 串口句柄
  */
-void Unitree_SendCommand(UART_HandleTypeDef* huart);
+void Unitree_SendCommand(UnitreeMotor* motor);
 
 /**
  * @brief 串口发送完成回调 (需在 HAL_UART_TxCpltCallback 中调用)
