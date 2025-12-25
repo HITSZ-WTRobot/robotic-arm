@@ -32,12 +32,11 @@ extern "C" {
 #endif
 
 // 协议常量定义
-#define UNITREE_POS_SCALE 32768.0f / 6.2832f // 1.0 rad = 32768
-#define UNITREE_SPD_SCALE 256.0f / 6.2832f   // 1.0 rad/s = 128
-#define UNITREE_TOR_SCALE 256.0f             // 1.0 Nm = 256
-#define UNITREE_KP_SCALE  32768 / 25.6f      // 1.0 = 32768
-#define UNITREE_KW_SCALE  32768 / 25.6f      // 1.0 = 32768
-
+#define UNITREE_POS_SCALE (32768.0f / 6.2832f)
+#define UNITREE_SPD_SCALE (256.0f / 6.2832f)
+#define UNITREE_TOR_SCALE 256.0f
+#define UNITREE_KP_SCALE  (32768 / 25.6f)
+#define UNITREE_KW_SCALE  (32768 / 25.6f)
 // 协议结构体 (1字节对齐)
 #pragma pack(1)
 
