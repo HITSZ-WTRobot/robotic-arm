@@ -33,9 +33,9 @@ void Motor_Control_Init()
     // Kp, Ki, Kd, MaxOutput
     // 请根据实际电机响应进行调节
     Unitree.SetCtrlParam((MotorPID_Config_t){
-        .Kp             = 0.8f,  // 比例系数
-        .Ki             = 0.0f, // 积分系数
-        .Kd             = 0.0f,  // 微分系数
+        .Kp             = 1.0f,  // 比例系数
+        .Ki             = 0.002f, // 积分系数
+        .Kd             = 0.3f,  // 微分系数
         .abs_output_max = 5.0f,  // 输出限幅 (Nm)
     });
 }
@@ -90,7 +90,7 @@ void Init(void* argument)
 void MotorCtrl(void* argument)
 {
     float current_vel = 0.0f;
-    const float ramp_step = 0.1f;
+    const float ramp_step = 0.3f;
     const uint32_t ramp_delay = 2;
 
     for (;;)
