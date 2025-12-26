@@ -20,7 +20,7 @@ namespace Arm
 
     // DJI Constructor
     MotorCtrl::MotorCtrl(DJI_t* driver, ControlMode mode, float torque_ratio) :
-        type_(MotorType::DJI), mode_(mode), driver_(driver),
+        type_(MotorType::DJI), mode_(mode), enable_(true), driver_(driver),
         torque_ratio_(torque_ratio), pos_vel_ratio_(1), update_count_(0)
     {
         // pos_pid_ and pos_pd_ share memory in union, so clearing the larger one is enough
@@ -30,7 +30,7 @@ namespace Arm
 
     // Unitree Constructor
     MotorCtrl::MotorCtrl(::UnitreeMotor* driver, ControlMode mode, float torque_ratio) :
-        type_(MotorType::Unitree), mode_(mode), driver_(driver),
+        type_(MotorType::Unitree), mode_(mode), enable_(true), driver_(driver),
         torque_ratio_(torque_ratio), pos_vel_ratio_(1), update_count_(0)
     {
         std::memset(&pos_pid_, 0, sizeof(MotorPID_t));
@@ -58,6 +58,11 @@ namespace Arm
         pos_vel_ratio_ = 1;
     }
 
+    void MotorCtrl::setEnable(bool enable)
+    {
+        enable_ = enable;
+    }
+
     void MotorCtrl::setTarget(float primary_ref, float secondary_ref, float torque_ff)
     {
         primary_ref_   = primary_ref;
@@ -69,6 +74,12 @@ namespace Arm
     {
         // 1. 更新反馈数据
         updateFeedback();
+
+        if (!enable_)
+        {
+            outputControl(0.0f); // 设置为0力矩，不知是否安全
+            return;
+        }
 
         float vel_target   = 0.0f;
         float final_output = 0.0f;
@@ -137,7 +148,7 @@ namespace Arm
         // 4. 合成最终输出 (PID输出 + 前馈力矩)
         // torque_ratio_ 用于将 Nm 转换为电机控制单位 (DJI: IQ, Unitree: Nm)
 
-        float ctrl_value = final_output + torque_ff_ * torque_ratio_;
+        ctrl_value = final_output + torque_ff_ * torque_ratio_;
         // float ctrl_value = torque_ff_ * torque_ratio_;
         // 5. 发送控制指令
         outputControl(ctrl_value);

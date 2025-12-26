@@ -85,6 +85,17 @@ namespace Arm
         void setTarget(float primary_ref, float secondary_ref = 0.0f, float torque_ff = 0.0f);
 
         /**
+         * @brief 启用/禁用电机控制
+         * @param enable true: 启用; false: 禁用 (输出 0 力矩)
+         */
+        void setEnable(bool enable);
+
+        /**
+         * @brief 获取当前启用状态
+         */
+        bool isEnabled() const { return enable_; }
+
+        /**
          * @brief 更新控制回路 (需周期性调用)
          */
         void update();
@@ -99,12 +110,14 @@ namespace Arm
          */
         float getVelocity() const { return current_velocity_; }
 
+
     private:
         void updateFeedback();
         void outputControl(float output);
 
         MotorType type_;
         ControlMode mode_;
+        bool enable_;
         void* driver_; // 泛型指针，指向 DJI_t 或 UnitreeMotor
         float torque_ratio_;
         uint32_t pos_vel_ratio_ = 1;
@@ -125,6 +138,8 @@ namespace Arm
         float primary_ref_   = 0.0f;
         float secondary_ref_ = 0.0f;
         float torque_ff_     = 0.0f;
+
+        float ctrl_value; // 最终控制输出值
     };
 
 } // namespace Arm
