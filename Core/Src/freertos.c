@@ -58,14 +58,14 @@ const osThreadAttr_t defaultTask_attributes = {
 osThreadId_t initHandle;
 const osThreadAttr_t init_attributes = {
   .name = "init",
-  .stack_size = 256 * 4,
+  .stack_size = 1024 * 4,
   .priority = (osPriority_t) osPriorityRealtime7,
 };
 /* Definitions for motorctrl */
 osThreadId_t motorctrlHandle;
 const osThreadAttr_t motorctrl_attributes = {
   .name = "motorctrl",
-  .stack_size = 512 * 4,
+  .stack_size = 1024 * 4,
   .priority = (osPriority_t) osPriorityHigh,
 };
 
