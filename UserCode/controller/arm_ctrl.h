@@ -166,6 +166,11 @@ namespace Arm
         float motor1_init_pos_;
         float motor2_init_pos_;
         float motor3_init_pos_;
+
+        // 预计算的重力补偿系数
+        float G1_;
+        float G2_;
+        float G3_;
     };
 
 } // namespace Arm

@@ -75,10 +75,31 @@ namespace Arm
         current_q1_ref_(0.0f), current_q2_ref_(0.0f), current_q3_ref_(0.0f),
         motor1_init_pos_(0.0f), motor2_init_pos_(0.0f), motor3_init_pos_(0.0f)
     {
+        // 预计算重力补偿系数
+        // G3 = m3 * g * lc3
+        G3_ = config_.m3 * config_.g * config_.lc3;
+
+        // G2 = (m2 * lc2 + m3 * l2) * g
+        G2_ = (config_.m2 * config_.lc2 + config_.m3 * config_.l2) * config_.g;
+
+        // G1 = (m1 * lc1 + m2 * l1 + m3 * l1) * g
+        G1_ = (config_.m1 * config_.lc1 + config_.m2 * config_.l1 + config_.m3 * config_.l1) * config_.g;
     }
 
     void Controller::init()
     {
+        // 1. 先禁用电机，防止在上电初始位置未知的情况下进行 PID 计算
+        joint1_.setEnable(false);
+        joint2_.setEnable(false);
+        joint3_.setEnable(false);
+
+        // 2. 更新反馈，获取当前物理位置
+        // 调用 update() 在禁用状态下会执行：读取反馈 + 发送0力矩指令
+        // 这比单纯 updateFeedback() 更安全，确保电机显式处于放松状态
+        joint1_.update();
+        joint2_.update();
+        joint3_.update();
+
         // 记录上电时的电机初始位置 (度)
         motor1_init_pos_ = joint1_.getAngle();
         motor2_init_pos_ = joint2_.getAngle();
@@ -100,6 +121,11 @@ namespace Arm
         traj_q1_.plan(q1_deg, q1_deg, 0, 0, config_.j1_max_vel, config_.j1_max_acc, config_.j1_max_jerk);
         traj_q2_.plan(q2_deg, q2_deg, 0, 0, config_.j2_max_vel, config_.j2_max_acc, config_.j2_max_jerk);
         traj_q3_.plan(q3_deg, q3_deg, 0, 0, config_.j3_max_vel, config_.j3_max_acc, config_.j3_max_jerk);
+
+        // 3. 初始化完成后启用电机
+        joint1_.setEnable(true);
+        joint2_.setEnable(true);
+        joint3_.setEnable(true);
     }
 
     void Controller::setJointTarget(float q1, float q2, float q3, float* t1, float* t2, float* t3)
@@ -145,9 +171,12 @@ namespace Arm
         traj_q2_.step(dt, current_q2_ref_, q2_vel_ref);
         traj_q3_.step(dt, current_q3_ref_, q3_vel_ref);
         // 2. 计算重力补偿力矩 (需要弧度)
-        float q1_rad = current_q1_ref_ * DEG_TO_RAD;
-        float q2_rad = current_q2_ref_ * DEG_TO_RAD;
-        float q3_rad = current_q3_ref_ * DEG_TO_RAD;
+        float q1_real, q2_real, q3_real;
+        getJointAngles(q1_real, q2_real, q3_real);
+
+        float q1_rad = q1_real * DEG_TO_RAD;
+        float q2_rad = q2_real * DEG_TO_RAD;
+        float q3_rad = q3_real * DEG_TO_RAD;
 
         float tau1_g = 0.0f;
         float tau2_g = 0.0f;
@@ -162,6 +191,9 @@ namespace Arm
         joint1_.setTarget((current_q1_ref_ - config_.offset_1) * config_.reduction_1 + motor1_init_pos_,
                           q1_vel_ref * config_.reduction_1,
                           tau1_g / config_.reduction_1);
+        // joint1_.setTarget((current_q1_ref_ - config_.offset_1) * config_.reduction_1 + motor1_init_pos_,
+        //                   q1_vel_ref * config_.reduction_1,
+        //                   0);
         joint2_.setTarget((current_q2_ref_ - config_.offset_2) * config_.reduction_2 + motor2_init_pos_,
                           q2_vel_ref * config_.reduction_2,
                           tau2_g / config_.reduction_2);
@@ -213,46 +245,23 @@ namespace Arm
 
     void Controller::calculateGravityComp(float q1, float q2, float q3, float& tau1, float& tau2, float& tau3)
     {
-        // 动力学参数
-        float m1  = config_.m1;
-        float m2  = config_.m2;
-        float m3  = config_.m3; // 吸盘关节+吸盘质量
-        float l1  = config_.l1;
-        float l2  = config_.l2;
-        float lc1 = config_.lc1;
-        float lc2 = config_.lc2;
-        float lc3 = config_.lc3;
-        float g   = config_.g;
-
         float c1   = cosf(q1);
         float c12  = cosf(q1 + q2);
         float c123 = cosf(q1 + q2 + q3);
 
         // 吸盘关节 (Joint 3): 仅受自身重力矩影响
-        //    T3 = m3 * g * lc3 * cos(q1 + q2 + q3)
-        tau3 = m3 * g * lc3 * c123;
+        // T3 = G3 * cos(q1 + q2 + q3)
+        tau3 = G3_ * c123;
 
         // 小臂 (Joint 2)
-        //    忽略 l3 长度，认为 m3 挂在 l2 末端
-        //    T2 = m2 * g * lc2 * cos(q1 + q2) + m3 * g * l2 * cos(q1 + q2)
-        float term2 = (m2 * lc2 + m3 * l2) * g * c12;
-        tau2        = term2 + tau3; // 关节3的力矩也会传递到关节2 (如果考虑完整动力学，这里其实是近似。严格来说 T2 = dV/dq2)
-        // 让我们重新推导一下 T2 的重力项。
-        // V = m1*g*y1 + m2*g*y2 + m3*g*y3
-        // y1 = lc1*sin(q1)
-        // y2 = l1*sin(q1) + lc2*sin(q1+q2)
-        // y3 = l1*sin(q1) + l2*sin(q1+q2) + lc3*sin(q1+q2+q3)
-        // G2 = dV/dq2 = m2*g*lc2*cos(q1+q2) + m3*g*(l2*cos(q1+q2) + lc3*cos(q1+q2+q3))
-        //             = (m2*lc2 + m3*l2)*g*cos(q1+q2) + m3*g*lc3*cos(q1+q2+q3)
-        //             = term2 + tau3
-        // 所以 tau2 = term2 + tau3 是正确的。
+        // T2 = G2 * cos(q1 + q2) + T3
+        float term2 = G2_ * c12;
+        tau2        = term2 + tau3;
 
         // 大臂 (Joint 1)
-        // G1 = dV/dq1 = m1*g*lc1*cos(q1) + m2*g*(l1*cos(q1) + lc2*cos(q1+q2)) + m3*g*(l1*cos(q1) + l2*cos(q1+q2) + lc3*cos(q1+q2+q3))
-        //             = (m1*lc1 + m2*l1 + m3*l1)*g*cos(q1) + (m2*lc2 + m3*l2)*g*cos(q1+q2) + m3*g*lc3*cos(q1+q2+q3)
-        //             = term1 + term2 + tau3
-        float term1 = (m1 * lc1 + m2 * l1 + m3 * l1) * g * c1;
-        tau1        = term1 + term2 + tau3;
+        // T1 = G1 * cos(q1) + T2
+        float term1 = G1_ * c1;
+        tau1        = term1 + tau2;
     }
 
 } // namespace Arm
