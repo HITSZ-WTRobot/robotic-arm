@@ -1,8 +1,10 @@
 #include <cstdio>
 #include <cstring>
 #include "app.h"
+#include "cmsis_os2.h"
 #include "controller/arm_ctrl.h" // 引入控制器头文件
 #include "drivers/DJI.h"
+#include "drivers/unitree_motor.h"
 #include "interfaces/arm_motor_if.h"
 #include "libs/pid_motor.h"
 #include "stm32f407xx.h"
@@ -104,20 +106,31 @@ void Init(void* argument)
                                             .huart           = &huart1,
                                             .rs485_gpio_port = GPIOA,
                                             .rs485_de_pin    = GPIO_PIN_8,
-                                            .id              = 2, // ID 为 2
+                                            .id              = 2,     // ID 为 2
+                                            .reverse         = true,  // 反转方向
+                                            .reduction_rate  = 6.33f, // 减速比 6.33
                                         });
+    Unitree_SetCmd(&unitree_motor_driver, 1, 0, 0, 0, 0, 0);
+    Unitree_SendCommand(&unitree_motor_driver);
+    osDelay(10);
+    if (unitree_motor_driver.feedback.rx_count == 0)
+    {
+        // 超时处理: 可以在这里报错或死循环
+    }
     // 2. 实例化电机接口
     // 大臂 (Unitree)
     static Arm::MotorCtrl m1(&unitree_motor_driver, Arm::ControlMode::PositionPD_VelocityFF, 1);
     m1.SetCtrlParam((PD_Config_t){
-                        .Kp             = 10.0f,
-                        .Kd             = 0.3f,
-                        .abs_output_max = 2000.0f,
+                        .Kp             = 3.0f,
+                        .Kd             = 0.1f,
+                        .abs_output_max = 5.0f,
                     },
                     (MotorPID_Config_t){
-                        .Kp = 50.0f, .Ki = 0.2f, .Kd = 5.0f,
-                        .abs_output_max = 60.0f, // 降低一半处理
-                    });                          // 设置 PID
+                        .Kp             = 0.011f,
+                        .Ki             = 0.00105f, // 积分项
+                        .Kd             = 0.0f,     //
+                        .abs_output_max = 15.0f,    // 降低一半处理
+                    });                             // 设置 PID
     joint1_motor = &m1;
 
     // 小臂 (DJI)
@@ -131,7 +144,7 @@ void Init(void* argument)
                         .Kp             = 45.0f,
                         .Ki             = 0.1f,
                         .Kd             = 5.0f,
-                        .abs_output_max = 8000.0f,
+                        .abs_output_max = 5000.0f,
                     });
     joint2_motor = &m2;
     // 吸盘 (DJI)
@@ -176,8 +189,8 @@ void Init(void* argument)
     // arm_cfg.offset_3 = 0.0f;
 
     // 运动学限制 (Degree)
-    arm_cfg.j1_max_vel  = 5.0f;
-    arm_cfg.j1_max_acc  = 5.0f;
+    arm_cfg.j1_max_vel  = 360.0f;
+    arm_cfg.j1_max_acc  = 10.0f;
     arm_cfg.j1_max_jerk = 500.0f;
     arm_cfg.j2_max_vel  = 50.0f;
     arm_cfg.j2_max_acc  = 120.0f;
@@ -189,7 +202,10 @@ void Init(void* argument)
     // 4. 实例化并初始化控制器
     static Arm::Controller ctrl(*joint1_motor, *joint2_motor, *gripper_motor, arm_cfg);
     robot_arm = &ctrl;
-
+    osDelay(50); // 等待电机反馈更新
+    Unitree_SetCmd(&unitree_motor_driver, 1, 0, 0, 0, 0, 0);
+    Unitree_SendCommand(&unitree_motor_driver);
+    osDelay(2000);
     robot_arm->init(); // 读取当前位置，防止跳变
 
     // 启动定时器
@@ -203,7 +219,7 @@ float q1, q2, q3;
 void MotorCtrl(void* argument)
 {
     // 等待系统稳定
-    osDelay(1000);
+    osDelay(4000);
 
     // 开启空闲中断接收 (DMA)
     HAL_UARTEx_ReceiveToIdle_DMA(&UART_PC_HANDLER, uart3_rx_buf, sizeof(uart3_rx_buf));
@@ -230,8 +246,8 @@ void MotorCtrl(void* argument)
                 {
                     robot_arm->setJointTarget(q1, q2, q3);
                 }
-                HAL_GPIO_WritePin(GPIOE, GPIO_PIN_6, (GPIO_PinState)vacuum_state);
-                HAL_GPIO_WritePin(GPIOB, GPIO_PIN_9, (GPIO_PinState)vacuum_state);
+                HAL_GPIO_WritePin(GPIOE, GPIO_PIN_6, (GPIO_PinState)!vacuum_state);
+                // HAL_GPIO_WritePin(GPIOB, GPIO_PIN_9, (GPIO_PinState)vacuum_state);
             }
 
             uart3_rx_flag = false;
@@ -245,7 +261,9 @@ void MotorCtrl(void* argument)
             float cur_q1, cur_q2, cur_q3;
             robot_arm->getJointAngles(cur_q1, cur_q2, cur_q3);
 
-            float pressure_kpa = pressure_sensor.readPressure() / 1000.0f;
+            // float pressure_kpa = pressure_sensor.readPressure() / 1000.0f;
+
+            float pressure_kpa = 100.0f;
             int len            = sprintf(tx_buf, "%.2f, %.2f, %.2f, %.2f\n", cur_q1, cur_q2, cur_q3, pressure_kpa);
 
             HAL_UART_Transmit_DMA(&UART_PC_HANDLER, (uint8_t*)tx_buf, len);
