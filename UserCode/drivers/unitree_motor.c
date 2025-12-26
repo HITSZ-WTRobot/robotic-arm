@@ -150,7 +150,7 @@ void Unitree_Init(UnitreeMotor* motor, Unitree_Config_t config)
     // 默认参数
     if (motor->config.reduction_rate == 0.0f)
     {
-        motor->config.reduction_rate = 1.0f;
+        motor->config.reduction_rate = 6.33f;
     }
 
     // 注册为全局单实例
