@@ -177,8 +177,8 @@ void Init(void* argument)
     arm_cfg.g           = 9.81f;
     arm_cfg.reduction_1 = 1.0f;                       // 大臂减速比 (例如 Unitree Go1 减速比)
     arm_cfg.reduction_2 = 100 * 187 * 1.5f / 3591.0f; // 小臂减速比 (例如 M3508 减速比)
-    arm_cfg.reduction_3 = 1.5f;                       // 吸盘关节减速比 (M2006)
-
+    // arm_cfg.reduction_3 = 1.5f;                       // 吸盘关节减速比 (M2006)
+    arm_cfg.reduction_3 = 2.7f;                       // 吸盘关节减速比 (M2006)                
     // 关节零位偏移 (Degree)
     // 假设上电时大臂垂直地面 (90度)，小臂水平 (0度)
     // 如果电机上电位置为 0，则 offset_1 = 90
