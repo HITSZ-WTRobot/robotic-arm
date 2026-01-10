@@ -73,7 +73,9 @@ namespace Arm
     Controller::Controller(MotorCtrl& joint1, MotorCtrl& joint2, MotorCtrl& joint3, const Config& config) :
         joint1_(joint1), joint2_(joint2), joint3_(joint3), config_(config),
         current_q1_ref_(0.0f), current_q2_ref_(0.0f), current_q3_ref_(0.0f),
-        motor1_init_pos_(0.0f), motor2_init_pos_(0.0f), motor3_init_pos_(0.0f)
+        motor1_init_pos_(0.0f), motor2_init_pos_(0.0f), motor3_init_pos_(0.0f),
+        current_payload_mass_(0.0f), target_payload_mass_(0.0f), payload_ramp_rate_(0.0f),
+        soft_start_scale_(0.0f)
     {
         // 预计算重力补偿系数
         // G3 = m3 * g * lc3
@@ -84,10 +86,18 @@ namespace Arm
 
         // G1 = (m1 * lc1 + m2 * l1 + m3 * l1) * g
         G1_ = (config_.m1 * config_.lc1 + config_.m2 * config_.l1 + config_.m3 * config_.l1) * config_.g;
+
+        // 预计算负载重力系数 (假设负载在连杆末端)
+        G_payload_factor_3_ = config_.g * config_.l3; // 实际上负载在吸盘末端，这里假设 l3 是吸盘长度
+        G_payload_factor_2_ = config_.g * config_.l2;
+        G_payload_factor_1_ = config_.g * config_.l1;
     }
 
     void Controller::init()
     {
+        // 重置软启动
+        soft_start_scale_ = 0.0f;
+
         // 1. 先禁用电机，防止在上电初始位置未知的情况下进行 PID 计算
         joint1_.setEnable(false);
         joint2_.setEnable(false);
@@ -128,6 +138,23 @@ namespace Arm
         joint3_.setEnable(true);
     }
 
+    void Controller::setPayload(float mass, float ramp_time)
+    {
+        target_payload_mass_ = mass;
+        if (ramp_time > 0.001f)
+        {
+            // 计算变化率: (目标 - 当前) / 时间
+            // 但这里我们只存储速率大小，方向在 update 中判断
+            // 或者简单点，存储 abs 速率
+            payload_ramp_rate_ = fabsf(mass - current_payload_mass_) / ramp_time;
+        }
+        else
+        {
+            current_payload_mass_ = mass;
+            payload_ramp_rate_    = 0.0f;
+        }
+    }
+
     void Controller::setJointTarget(float q1, float q2, float q3, float* t1, float* t2, float* t3)
     {
         // 高频控制优化:
@@ -160,6 +187,29 @@ namespace Arm
 
     void Controller::update(float dt)
     {
+        // 0. 更新状态
+        // 0.1 负载质量平滑过渡
+        if (payload_ramp_rate_ > 0.0f)
+        {
+            float diff = target_payload_mass_ - current_payload_mass_;
+            float step = payload_ramp_rate_ * dt;
+            if (fabsf(diff) <= step)
+            {
+                current_payload_mass_ = target_payload_mass_;
+            }
+            else
+            {
+                current_payload_mass_ += (diff > 0 ? step : -step);
+            }
+        }
+
+        // 0.2 软启动
+        if (soft_start_scale_ < 1.0f)
+        {
+            soft_start_scale_ += dt / soft_start_duration_;
+            if (soft_start_scale_ > 1.0f) soft_start_scale_ = 1.0f;
+        }
+
         // 1. 计算轨迹生成的新目标状态
         float q1_vel_ref, q2_vel_ref, q3_vel_ref;
 
@@ -182,6 +232,11 @@ namespace Arm
         float tau2_g = 0.0f;
         float tau3_g = 0.0f;
         calculateGravityComp(q1_rad, q2_rad, q3_rad, tau1_g, tau2_g, tau3_g);
+
+        // 应用软启动比例
+        tau1_g *= soft_start_scale_;
+        tau2_g *= soft_start_scale_;
+        tau3_g *= soft_start_scale_;
 
         // 3. 更新关节电机目标 (位置 + 前馈速度 + 前馈力矩)
         // setTarget 接受度数
@@ -249,18 +304,23 @@ namespace Arm
         float c12  = cosf(q1 + q2);
         float c123 = cosf(q1 + q2 + q3);
 
+        // 考虑负载影响
+        float G3_eff = G3_ + current_payload_mass_ * G_payload_factor_3_;
+        float G2_eff = G2_ + current_payload_mass_ * G_payload_factor_2_;
+        float G1_eff = G1_ + current_payload_mass_ * G_payload_factor_1_;
+
         // 吸盘关节 (Joint 3): 仅受自身重力矩影响
         // T3 = G3 * cos(q1 + q2 + q3)
-        tau3 = G3_ * c123;
+        tau3 = G3_eff * c123;
 
         // 小臂 (Joint 2)
         // T2 = G2 * cos(q1 + q2) + T3
-        float term2 = G2_ * c12;
+        float term2 = G2_eff * c12;
         tau2        = term2 + tau3;
 
         // 大臂 (Joint 1)
         // T1 = G1 * cos(q1) + T2
-        float term1 = G1_ * c1;
+        float term1 = G1_eff * c1;
         tau1        = term1 + tau2;
     }
 

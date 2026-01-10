@@ -87,6 +87,13 @@ namespace Arm
         void setJointTarget(float q1, float q2, float q3, float* t1 = nullptr, float* t2 = nullptr, float* t3 = nullptr);
 
         /**
+         * @brief 设置末端负载质量 (用于重力补偿)
+         * @param mass 负载质量 (kg)
+         * @param ramp_time 负载质量切换的过渡时间 (s), 默认 0.5s
+         */
+        void setPayload(float mass, float ramp_time = 0.5f);
+
+        /**
          * @brief 查询关节是否都已到达目标
          * @return true 已到达, false 运动中
          */
@@ -171,6 +178,18 @@ namespace Arm
         float G1_;
         float G2_;
         float G3_;
+
+        // 负载重力补偿系数 (预计算)
+        float G_payload_factor_1_, G_payload_factor_2_, G_payload_factor_3_;
+
+        // 负载质量平滑过渡
+        float current_payload_mass_ = 0.0f;
+        float target_payload_mass_  = 0.0f;
+        float payload_ramp_rate_    = 0.0f; // kg/s
+
+        // 软启动 (Soft Start)
+        float soft_start_scale_    = 0.0f;
+        float soft_start_duration_ = 2.0f; // 上电后 2 秒内力矩逐渐增加
     };
 
 } // namespace Arm
