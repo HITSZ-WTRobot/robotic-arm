@@ -126,8 +126,8 @@ void Init(void* argument)
                         .abs_output_max = 5.0f,
                     },
                     (MotorPID_Config_t){
-                        .Kp             = 0.011f,
-                        .Ki             = 0.00105f, // 积分项
+                        .Kp             = 0.02f,
+                        .Ki             = 0.00305f, // 积分项
                         .Kd             = 0.0f,     //
                         .abs_output_max = 15.0f,    // 降低一半处理
                     });                             // 设置 PID
@@ -178,13 +178,13 @@ void Init(void* argument)
     arm_cfg.reduction_1 = 1.0f;                       // 大臂减速比 (例如 Unitree Go1 减速比)
     arm_cfg.reduction_2 = 100 * 187 * 1.5f / 3591.0f; // 小臂减速比 (例如 M3508 减速比)
     // arm_cfg.reduction_3 = 1.5f;                       // 吸盘关节减速比 (M2006)
-    arm_cfg.reduction_3 = 2.7f;                       // 吸盘关节减速比 (M2006)                
+    arm_cfg.reduction_3 = 2.7f; // 吸盘关节减速比 (M2006)
     // 关节零位偏移 (Degree)
     // 假设上电时大臂垂直地面 (90度)，小臂水平 (0度)
     // 如果电机上电位置为 0，则 offset_1 = 90
     arm_cfg.offset_1 = 0.0f;
-    arm_cfg.offset_2 = -27.0f;
-    arm_cfg.offset_3 = 94.0f;
+    arm_cfg.offset_2 = 162.0f;
+    arm_cfg.offset_3 = -90.0f;
     // arm_cfg.offset_2 = 90.0f;
     // arm_cfg.offset_3 = 0.0f;
 
