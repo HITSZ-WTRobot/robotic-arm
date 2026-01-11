@@ -222,5 +222,20 @@ namespace Arm
             );
         }
     }
+    bool MotorCtrl::isConnected() const
+    {
+        if (!driver_) return false;
+        if (type_ == MotorType::DJI)
+        {
+            const DJI_t* dji = static_cast<const DJI_t*>(driver_);
+            return dji->feedback_count > 0;
+        }
+        else if (type_ == MotorType::Unitree)
+        {
+            const ::UnitreeMotor* unitree = static_cast<const ::UnitreeMotor*>(driver_);
+            return unitree->feedback.connected;
+        }
+        return false;
+    }
 
 } // namespace Arm

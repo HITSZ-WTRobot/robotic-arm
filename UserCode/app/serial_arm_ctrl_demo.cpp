@@ -163,6 +163,19 @@ void Init(void* argument)
                     });
     gripper_motor = &m3;
 
+    // 检测初始化是否成功
+    uint32_t start_tick = HAL_GetTick();
+    while (!joint1_motor->isConnected() || !joint2_motor->isConnected() || !gripper_motor->isConnected())
+    {
+        // 再发送一次命令？
+        if (HAL_GetTick() - start_tick > 6000)
+        {
+            Error_Handler(); // 超时处理
+        }
+        osDelay(10);
+    }
+
+
     // 3. 配置机械臂参数
     Arm::Controller::Config arm_cfg;
     arm_cfg.l1          = 0.346f;  // 大臂长 0.3m

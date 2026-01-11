@@ -110,6 +110,11 @@ namespace Arm
          */
         float getVelocity() const { return current_velocity_; }
 
+        /**
+         * @brief 检查电机是否初始化成功（已连接）
+         * @return true: 已连接/收到反馈; false: 未连接
+         */
+        bool isConnected() const;
 
     private:
         void updateFeedback();
