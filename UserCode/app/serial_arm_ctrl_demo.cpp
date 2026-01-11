@@ -112,11 +112,11 @@ void Init(void* argument)
                                         });
     Unitree_SetCmd(&unitree_motor_driver, 1, 0, 0, 0, 0, 0);
     Unitree_SendCommand(&unitree_motor_driver);
-    osDelay(10);
-    if (unitree_motor_driver.feedback.rx_count == 0)
-    {
-        // 超时处理: 可以在这里报错或死循环
-    }
+     osDelay(10);
+    // if (unitree_motor_driver.feedback.rx_count == 0)
+    // {
+    //     // 超时处理: 可以在这里报错或死循环
+    // }
     // 2. 实例化电机接口
     // 大臂 (Unitree)
     static Arm::MotorCtrl m1(&unitree_motor_driver, Arm::ControlMode::PositionPD_VelocityFF, 1);

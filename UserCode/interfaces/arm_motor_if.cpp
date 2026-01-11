@@ -233,7 +233,7 @@ namespace Arm
         else if (type_ == MotorType::Unitree)
         {
             const ::UnitreeMotor* unitree = static_cast<const ::UnitreeMotor*>(driver_);
-            return unitree->feedback.connected;
+            return unitree->feedback.rx_count > 0;
         }
         return false;
     }
