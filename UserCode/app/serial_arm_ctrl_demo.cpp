@@ -80,16 +80,16 @@ void Init(void* argument)
                                     .reverse    = false,
                                     .motor_type = M3508_C620,
                                     .hcan       = &hcan1,
-                                    .id1        = 6,
+                                    .id1        = 3,
                                 });
     // 初始化小臂从电机 (M3508)
     // 假设：对向安装需要反转 (reverse = true)，ID为 7
     DJI_Init(&dji_motor_driver_slave, (DJI_Config_t){
-                                          .auto_zero  = false, // 从电机不需要 auto_zero，跟随主电机
-                                          .reverse    = true,  // 对向安装通常需要反向
+                                          .auto_zero  = true, // 从电机不需要 auto_zero，跟随主电机
+                                          .reverse    = true, // 对向安装通常需要反向
                                           .motor_type = M3508_C620,
                                           .hcan       = &hcan1,
-                                          .id1        = 7, // 需修改：根据实际 ID 设置
+                                          .id1        = 4, // 需修改：根据实际 ID 设置
                                       });
 
     DJI_Init(&dji_gripper, (DJI_Config_t){
@@ -102,24 +102,13 @@ void Init(void* argument)
     // 初始化吸盘从电机 (M2006)
     // 假设：对向安装需要反转 (reverse = true)，ID为 2
     DJI_Init(&dji_gripper_slave, (DJI_Config_t){
-                                     .auto_zero  = false,
+                                     .auto_zero  = true,
                                      .reverse    = true, // 对向安装通常需要反向
                                      .motor_type = M2006_C610,
                                      .hcan       = &hcan1,
                                      .id1        = 2, // 需修改：根据实际 ID 设置
                                  });
 
-    // 检查 DJI 电机连接 (等待反馈)
-    // uint32_t start_tick = HAL_GetTick();
-    // while (dji_motor_driver.feedback_count == 0 || dji_gripper.feedback_count == 0)
-    // {
-    //     if (HAL_GetTick() - start_tick > 3000)
-    //     {
-    //         // 超时处理: 可以在这里报错或死循环
-    //         break;
-    //     }
-    //     osDelay(10);
-    // }
 
     // 注册 UART 回调
     HAL_UART_RegisterRxEventCallback(&huart1, Unitree_RxEventCallback);
@@ -130,8 +119,8 @@ void Init(void* argument)
                                             .huart           = &huart1,
                                             .rs485_gpio_port = GPIOA,
                                             .rs485_de_pin    = GPIO_PIN_8,
-                                            .id              = 2,     // ID 为 2
-                                            .reverse         = true,  // 反转方向
+                                            .id              = 1,     // ID 为 2
+                                            .reverse         = false, // 反转方向
                                             .reduction_rate  = 6.33f, // 减速比 6.33
                                         });
     Unitree_SetCmd(&unitree_motor_driver, 1, 0, 0, 0, 0, 0);
@@ -149,20 +138,20 @@ void Init(void* argument)
     // 稳妥起见，设为 1.0，依靠 DualArmController 的 reduction_1 和 Driver 的 reduction_rate。
 
     m1.SetCtrlParam((PD_Config_t){
-                        .Kp             = 0.0f,
-                        .Kd             = 0.0f,
-                        .abs_output_max = 20.0f,
+                        .Kp             = 3.0f,
+                        .Kd             = 0.1f,
+                        .abs_output_max = 5.0f,
                     },
                     (MotorPID_Config_t){
-                        .Kp             = 0.0f,
-                        .Ki             = 0.0f,
+                        .Kp             = 0.02f,
+                        .Ki             = 0.00305f,
                         .Kd             = 0.0f,
                         .abs_output_max = 20.0f,
                     });
     joint1_motor = &m1;
 
     // 小臂 Master (DJI)
-    static Arm::MotorCtrl m2_master(&dji_motor_driver, Arm::ControlMode::PositionPD_VelocityFF, (3591.0f / (187 * 100)) * (16384.0f / (20.0f * 0.3f)));
+    static Arm::MotorCtrl m2_master(&dji_motor_driver, Arm::ControlMode::PositionPD_VelocityFF, (187.0f / 3591) * (16384.0f / (20.0f * 0.3f)));
     m2_master.SetCtrlParam((PD_Config_t){
                                .Kp             = 8.0f,
                                .Kd             = 0.2f,
@@ -172,12 +161,12 @@ void Init(void* argument)
                                .Kp             = 45.0f,
                                .Ki             = 0.1f,
                                .Kd             = 5.0f,
-                               .abs_output_max = 5000.0f,
+                               .abs_output_max = 8000.0f,
                            });
     joint2_motor_master = &m2_master;
 
     // 小臂 Slave (DJI)
-    static Arm::MotorCtrl m2_slave(&dji_motor_driver_slave, Arm::ControlMode::PositionPD_VelocityFF, (3591.0f / (187 * 100)) * (16384.0f / (20.0f * 0.3f)));
+    static Arm::MotorCtrl m2_slave(&dji_motor_driver_slave, Arm::ControlMode::PositionPD_VelocityFF, (187.0f / 3591) * (16384.0f / (20.0f * 0.3f)));
     m2_slave.SetCtrlParam((PD_Config_t){
                               .Kp             = 8.0f,
                               .Kd             = 0.2f,
@@ -187,7 +176,7 @@ void Init(void* argument)
                               .Kp             = 45.0f,
                               .Ki             = 0.1f, // 如果 Slave 负载稍轻，可适当减小 Ki
                               .Kd             = 5.0f,
-                              .abs_output_max = 5000.0f,
+                              .abs_output_max = 8000.0f,
                           });
     joint2_motor_slave = &m2_slave;
 
@@ -223,38 +212,43 @@ void Init(void* argument)
     gripper_motor_slave = &m3_slave;
 
     // 检测初始化是否成功
-    uint32_t start_tick = HAL_GetTick();
-    while (!joint1_motor->isConnected() || !joint2_motor_master->isConnected() || !joint2_motor_slave->isConnected() ||
-           !gripper_motor_master->isConnected() || !gripper_motor_slave->isConnected())
+    // uint32_t start_tick = HAL_GetTick();
+    // while (!joint1_motor->isConnected() || !joint2_motor_master->isConnected() || !joint2_motor_slave->isConnected() ||
+    //        !gripper_motor_master->isConnected() || !gripper_motor_slave->isConnected())
+    // {
+    //     // ... (同上)
+    //     if (HAL_GetTick() - start_tick > 6000)
+    //     {
+    //         Error_Handler(); // 超时处理
+    //     }
+    //     osDelay(10);
+    // }
+    if (!joint1_motor->isConnected())
     {
-        // ... (同上)
-        if (HAL_GetTick() - start_tick > 6000)
-        {
-            Error_Handler(); // 超时处理
-        }
-        osDelay(10);
+        Error_Handler();
     }
-
 
     // 3. 配置机械臂参数
     Arm::DualArmController::Config arm_cfg;
-    arm_cfg.l1 = 0.346f; // 大臂长 0.3m
+    arm_cfg.l1 = 0.504f; // 大臂长 0.3m
     // ... (物理参数保持不变)
-    arm_cfg.l2          = 0.382f;
-    arm_cfg.l3          = 0.093f;
-    arm_cfg.lc1         = 0.171f;
-    arm_cfg.lc2         = 0.176f;
-    arm_cfg.lc3         = 0.057f;
-    arm_cfg.m1          = 1.2243f;
-    arm_cfg.m2          = 0.675f;
-    arm_cfg.m3          = 0.6764f;
+    arm_cfg.l2          = 0.400f;
+    arm_cfg.l3          = 0.045f;
+    arm_cfg.lc1         = 0.2865f;
+    arm_cfg.lc2         = 0.303f;
+    arm_cfg.lc3         = 0.000f;
+    arm_cfg.m1          = 3.8548f;
+    arm_cfg.m2          = 1.11341f;
+    arm_cfg.m3          = 0.0f;
     arm_cfg.g           = 9.81f;
     arm_cfg.reduction_1 = 1.0f;
-    arm_cfg.reduction_2 = 100 * 187 * 1.5f / 3591.0f;
+    // arm_cfg.reduction_2 = 100 * 187 * 1.5f / 3591.0f;
+    arm_cfg.reduction_2 = 1.5f;
     arm_cfg.reduction_3 = 2.7f;
-    arm_cfg.offset_1    = 0.0f;
-    arm_cfg.offset_2    = 162.0f;
-    arm_cfg.offset_3    = -90.0f;
+    // 关节偏移角 (Degree)
+    arm_cfg.offset_1 = 180.0f;
+    arm_cfg.offset_2 = -90.0f;
+    arm_cfg.offset_3 = 0.0f;
 
     // 运动学限制
     arm_cfg.j1_max_vel  = 360.0f;
@@ -263,7 +257,7 @@ void Init(void* argument)
     arm_cfg.j2_max_vel  = 50.0f;
     arm_cfg.j2_max_acc  = 120.0f;
     arm_cfg.j2_max_jerk = 500.0f;
-    arm_cfg.j3_max_vel  = 3600.0f;
+    arm_cfg.j3_max_vel  = 36.0f;
     arm_cfg.j3_max_acc  = 360.0f;
     arm_cfg.j3_max_jerk = 500.0f;
 
@@ -271,10 +265,10 @@ void Init(void* argument)
     // 关键参数:
     // gain = 2.0: 每 1度误差产生 2度/秒的修正速度。既不慢也不至于太猛。
     // deadzone = 0.2: 忽略小于0.2度的误差，防止在死压状态下微震荡。
-    arm_cfg.sync_gain_2     = 2.0f;
+    arm_cfg.sync_gain_2     = 0.0f;
     arm_cfg.sync_deadzone_2 = 0.2f;
 
-    arm_cfg.sync_gain_3     = 2.0f;
+    arm_cfg.sync_gain_3     = 0.0f;
     arm_cfg.sync_deadzone_3 = 0.2f;
 
     // 4. 实例化并初始化控制器

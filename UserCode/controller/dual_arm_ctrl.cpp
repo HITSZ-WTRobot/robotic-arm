@@ -195,22 +195,26 @@ namespace Arm
         float motor1_ff_tau     = t1_g / config_.reduction_1;
 
         j1_.setTarget(motor1_target_pos, motor1_ff_vel, motor1_ff_tau);
-
+        // j1_.setTarget(motor1_target_pos, motor1_ff_vel, 0.0f);
         // 关节 2 (双电机)
         // 重力矩平分 (t2_g / 2)
         // 速度前馈包含纠偏量: (规划速度 +/- 纠偏速度) * 减速比
         float motor2_m_target = (cur_q2_ref_ - config_.offset_2) * config_.reduction_2 + j2_m_init_pos_;
         float motor2_s_target = (cur_q2_ref_ - config_.offset_2) * config_.reduction_2 + j2_s_init_pos_;
 
-        j2_m_.setTarget(motor2_m_target, q2_m_v_corr * config_.reduction_2, (t2_g * 0.5f) / config_.reduction_2);
-        j2_s_.setTarget(motor2_s_target, q2_s_v_corr * config_.reduction_2, (t2_g * 0.5f) / config_.reduction_2);
+        // j2_m_.setTarget(motor2_m_target, q2_m_v_corr * config_.reduction_2, (t2_g * 0.5f) / config_.reduction_2);
+        // j2_s_.setTarget(motor2_s_target, q2_s_v_corr * config_.reduction_2, (t2_g * 0.5f) / config_.reduction_2);
+        j2_m_.setTarget(motor2_m_target, q2_m_v_corr * config_.reduction_2, 0.0f);
+        j2_s_.setTarget(motor2_s_target, q2_s_v_corr * config_.reduction_2, 0.0f);
 
         // 关节 3 (双电机)
         float motor3_m_target = (cur_q3_ref_ - config_.offset_3) * config_.reduction_3 + j3_m_init_pos_;
         float motor3_s_target = (cur_q3_ref_ - config_.offset_3) * config_.reduction_3 + j3_s_init_pos_;
 
-        j3_m_.setTarget(motor3_m_target, q3_m_v_corr * config_.reduction_3, (t3_g * 0.5f) / config_.reduction_3);
-        j3_s_.setTarget(motor3_s_target, q3_s_v_corr * config_.reduction_3, (t3_g * 0.5f) / config_.reduction_3);
+        // j3_m_.setTarget(motor3_m_target, q3_m_v_corr * config_.reduction_3, (t3_g * 0.5f) / config_.reduction_3);
+        // j3_s_.setTarget(motor3_s_target, q3_s_v_corr * config_.reduction_3, (t3_g * 0.5f) / config_.reduction_3);
+        j3_m_.setTarget(motor3_m_target, q3_m_v_corr * config_.reduction_3, 0.0f);
+        j3_s_.setTarget(motor3_s_target, q3_s_v_corr * config_.reduction_3, 0.0f);
 
 
         // --- 6. 执行底层 PID ---
