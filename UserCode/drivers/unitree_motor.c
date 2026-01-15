@@ -8,7 +8,7 @@
 
 #include "unitree_motor.h"
 #include <string.h>
-#include "libs\crc_ccitt.h"
+#include "libs/crc_ccitt.h"
 
 // 全局单电机实例指针
 static UnitreeMotor* g_motor = NULL;
