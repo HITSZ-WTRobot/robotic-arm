@@ -1,8 +1,14 @@
 #include "rrt_star_planner.h"
 
+#ifdef __cplusplus
+extern "C"
+{
+#endif
+
 // 初始化规划器
-RRTStarPlanner* init_planner(double link1, double link2, double link3, 
-                           double base_x, double base_y, double safety_margin) {
+RRTStarPlanner* init_planner(float link1, float link2, float link3, 
+                           float base_x, float base_y, float safety_margin) 
+{
     RRTStarPlanner* planner = (RRTStarPlanner*)malloc(sizeof(RRTStarPlanner));
     
     // 设置机械臂参数
@@ -32,9 +38,9 @@ RRTStarPlanner* init_planner(double link1, double link2, double link3,
 
 // 设置关节限制
 void set_joint_limits(RRTStarPlanner* planner, 
-                     double joint1_min, double joint1_max,
-                     double joint2_min, double joint2_max, 
-                     double joint3_min, double joint3_max) {
+                     float joint1_min, float joint1_max,
+                     float joint2_min, float joint2_max, 
+                     float joint3_min, float joint3_max) {
     planner->robot_config.joint_limits[0][0] = joint1_min;
     planner->robot_config.joint_limits[0][1] = joint1_max;
     planner->robot_config.joint_limits[1][0] = joint2_min;
@@ -44,12 +50,12 @@ void set_joint_limits(RRTStarPlanner* planner,
 }
 
 // 设置连杆宽度
-void set_link_width(RRTStarPlanner* planner, double width) {
+void set_link_width(RRTStarPlanner* planner, float width) {
     planner->robot_config.link_width = width;
 }
 
 // 添加障碍物
-void add_obstacle(RRTStarPlanner* planner, double center_x, double center_y, double radius) {
+void add_obstacle(RRTStarPlanner* planner, float center_x, float center_y, float radius) {
     if (planner->obstacle_count < MAX_OBSTACLES) {
         planner->obstacles[planner->obstacle_count].center.x = center_x;
         planner->obstacles[planner->obstacle_count].center.y = center_y;
@@ -60,8 +66,8 @@ void add_obstacle(RRTStarPlanner* planner, double center_x, double center_y, dou
 
 // 设置规划参数
 void set_planning_parameters(RRTStarPlanner* planner, 
-                           double step_size, double goal_bias, 
-                           int max_iter, double tolerance) {
+                           float step_size, float goal_bias, 
+                           int max_iter, float tolerance) {
     planner->step_size = step_size;
     planner->goal_bias = goal_bias;
     planner->max_iterations = max_iter;
@@ -71,33 +77,33 @@ void set_planning_parameters(RRTStarPlanner* planner,
 
 // 正运动学计算
 void forward_kinematics(const RRTStarPlanner* planner, 
-                       const double angles[3], Point2D positions[4]) {
+                       const float angles[3], Point2D positions[4]) {
     // 基座位置
     positions[0] = planner->robot_config.base_position;
     
     // 第一关节
-    positions[1].x = positions[0].x + planner->robot_config.link_lengths[0] * cos(angles[0]);
-    positions[1].y = positions[0].y + planner->robot_config.link_lengths[0] * sin(angles[0]);
+    positions[1].x = positions[0].x + planner->robot_config.link_lengths[0] * cosf(angles[0]);
+    positions[1].y = positions[0].y + planner->robot_config.link_lengths[0] * sinf(angles[0]);
     
     // 第二关节
-    positions[2].x = positions[1].x + planner->robot_config.link_lengths[1] * cos(angles[0] + angles[1]);
-    positions[2].y = positions[1].y + planner->robot_config.link_lengths[1] * sin(angles[0] + angles[1]);
+    positions[2].x = positions[1].x + planner->robot_config.link_lengths[1] * cosf(angles[0] + angles[1]);
+    positions[2].y = positions[1].y + planner->robot_config.link_lengths[1] * sinf(angles[0] + angles[1]);
     
     // 末端执行器（第三关节）
-    positions[3].x = positions[2].x + planner->robot_config.link_lengths[2] * cos(angles[0] + angles[1] + angles[2]);
-    positions[3].y = positions[2].y + planner->robot_config.link_lengths[2] * sin(angles[0] + angles[1] + angles[2]);
+    positions[3].x = positions[2].x + planner->robot_config.link_lengths[2] * cosf(angles[0] + angles[1] + angles[2]);
+    positions[3].y = positions[2].y + planner->robot_config.link_lengths[2] * sinf(angles[0] + angles[1] + angles[2]);
 }
 
 // 两点距离计算
-double point_distance(Point2D p1, Point2D p2) {
-    double dx = p1.x - p2.x;
-    double dy = p1.y - p2.y;
-    return sqrt(dx*dx + dy*dy);
+float point_distance(Point2D p1, Point2D p2) {
+    float dx = p1.x - p2.x;
+    float dy = p1.y - p2.y;
+    return sqrtf(dx*dx + dy*dy);
 }
 
 // 计算点到线段的距离
-double segment_point_distance(Point2D seg_start, Point2D seg_end, Point2D point) {
-    double segment_length_sq = (seg_end.x - seg_start.x) * (seg_end.x - seg_start.x) + 
+float segment_point_distance(Point2D seg_start, Point2D seg_end, Point2D point) {
+    float segment_length_sq = (seg_end.x - seg_start.x) * (seg_end.x - seg_start.x) + 
                               (seg_end.y - seg_start.y) * (seg_end.y - seg_start.y);
     
     if (segment_length_sq == 0.0) {
@@ -105,10 +111,10 @@ double segment_point_distance(Point2D seg_start, Point2D seg_end, Point2D point)
     }
     
     // 计算投影参数t
-    double t = ((point.x - seg_start.x) * (seg_end.x - seg_start.x) + 
+    float t = ((point.x - seg_start.x) * (seg_end.x - seg_start.x) + 
                 (point.y - seg_start.y) * (seg_end.y - seg_start.y)) / segment_length_sq;
     
-    t = fmax(0.0, fmin(1.0, t)); // 限制t在[0,1]范围内
+    t = fmaxf(0.0, fminf(1.0, t)); // 限制t在[0,1]范围内
     
     // 计算投影点
     Point2D projection;
@@ -120,16 +126,16 @@ double segment_point_distance(Point2D seg_start, Point2D seg_end, Point2D point)
 
 // 检查线段与圆的相交（考虑安全距离）
 int segment_circle_intersection(Point2D seg_start, Point2D seg_end, 
-                               Point2D circle_center, double circle_radius, 
-                               double safety_margin) {
-    double effective_radius = circle_radius + safety_margin;
-    double dist = segment_point_distance(seg_start, seg_end, circle_center);
+                               Point2D circle_center, float circle_radius, 
+                               float safety_margin) {
+    float effective_radius = circle_radius + safety_margin;
+    float dist = segment_point_distance(seg_start, seg_end, circle_center);
     
     return dist <= effective_radius;
 }
 
 // 改进的碰撞检测：检查所有连杆与障碍物的碰撞
-int check_collision(const RRTStarPlanner* planner, const double angles[3]) {
+int check_collision(const RRTStarPlanner* planner, const float angles[3]) {
     Point2D positions[4];
     forward_kinematics(planner, angles, positions);
     
@@ -153,28 +159,28 @@ int check_collision(const RRTStarPlanner* planner, const double angles[3]) {
 }
 
 // 关节空间距离计算
-double calculate_distance(const double angles1[3], const double angles2[3]) {
-    double distance = 0.0;
+float calculate_distance(const float angles1[3], const float angles2[3]) {
+    float distance = 0.0;
     for (int i = 0; i < 3; i++) {
-        double diff = angles1[i] - angles2[i];
+        float diff = angles1[i] - angles2[i];
         // 处理角度环绕
         if (diff > PI) diff -= 2*PI;
         if (diff < -PI) diff += 2*PI;
         distance += diff * diff;
     }
-    return sqrt(distance);
+    return sqrtf(distance);
 }
 
 // RRT*核心算法
 PlanningResult* plan_path(RRTStarPlanner* planner, 
-                         const double start_angles[3], 
-                         const double goal_angles[3]) {
+                         const float start_angles[3], 
+                         const float goal_angles[3]) {
     Waypoint* tree = (Waypoint*)malloc(MAX_NODES * sizeof(Waypoint));
     int node_count = 0;
     
     // 初始化起始点
     Waypoint start_node;
-    memcpy(start_node.joint_angles, start_angles, 3 * sizeof(double));
+    memcpy(start_node.joint_angles, start_angles, 3 * sizeof(float));
     forward_kinematics(planner, start_angles, start_node.joint_positions);
     start_node.cost = 0.0;
     start_node.parent_index = -1;
@@ -188,12 +194,12 @@ PlanningResult* plan_path(RRTStarPlanner* planner,
     
     for (int iter = 0; iter < planner->max_iterations; iter++) {
         // 随机采样（带有目标偏向）
-        double random_angles[3];
-        if ((double)rand() / RAND_MAX < planner->goal_bias) {
-            memcpy(random_angles, goal_angles, 3 * sizeof(double));
+        float random_angles[3];
+        if ((float)rand() / RAND_MAX < planner->goal_bias) {
+            memcpy(random_angles, goal_angles, 3 * sizeof(float));
         } else {
             for (int i = 0; i < 3; i++) {
-                random_angles[i] = random_double(
+                random_angles[i] = random_float(
                     planner->robot_config.joint_limits[i][0],
                     planner->robot_config.joint_limits[i][1]);
             }
@@ -201,9 +207,9 @@ PlanningResult* plan_path(RRTStarPlanner* planner,
         
         // 寻找最近节点
         int nearest_idx = 0;
-        double min_dist = calculate_distance(tree[0].joint_angles, random_angles);
+        float min_dist = calculate_distance(tree[0].joint_angles, random_angles);
         for (int i = 1; i < node_count; i++) {
-            double dist = calculate_distance(tree[i].joint_angles, random_angles);
+            float dist = calculate_distance(tree[i].joint_angles, random_angles);
             if (dist < min_dist) {
                 min_dist = dist;
                 nearest_idx = i;
@@ -212,24 +218,24 @@ PlanningResult* plan_path(RRTStarPlanner* planner,
         
         // 向随机点方向扩展
         Waypoint new_node;
-        double direction[3];
+        float direction[3];
         for (int i = 0; i < 3; i++) {
             direction[i] = random_angles[i] - tree[nearest_idx].joint_angles[i];
         }
         
         // 归一化方向向量
-        double norm = min_dist;
+        float norm = min_dist;
         if (norm > planner->step_size) {
             for (int i = 0; i < 3; i++) {
                 new_node.joint_angles[i] = tree[nearest_idx].joint_angles[i] + 
                     (direction[i] / norm) * planner->step_size;
                 
                 // 确保角度在限制范围内
-                new_node.joint_angles[i] = fmax(planner->robot_config.joint_limits[i][0],
-                    fmin(new_node.joint_angles[i], planner->robot_config.joint_limits[i][1]));
+                new_node.joint_angles[i] = fmaxf(planner->robot_config.joint_limits[i][0],
+                    fminf(new_node.joint_angles[i], planner->robot_config.joint_limits[i][1]));
             }
         } else {
-            memcpy(new_node.joint_angles, random_angles, 3 * sizeof(double));
+            memcpy(new_node.joint_angles, random_angles, 3 * sizeof(float));
         }
         
         // 改进的碰撞检测
@@ -240,24 +246,24 @@ PlanningResult* plan_path(RRTStarPlanner* planner,
         forward_kinematics(planner, new_node.joint_angles, new_node.joint_positions);
         
         // RRT*: 在搜索半径内寻找最优父节点
-        double min_cost = tree[nearest_idx].cost + 
+        float min_cost = tree[nearest_idx].cost + 
             calculate_distance(tree[nearest_idx].joint_angles, new_node.joint_angles);
         int best_parent = nearest_idx;
         
         for (int i = 0; i < node_count; i++) {
-            double dist = calculate_distance(tree[i].joint_angles, new_node.joint_angles);
+            float dist = calculate_distance(tree[i].joint_angles, new_node.joint_angles);
             if (dist <= planner->search_radius) {
-                double new_cost = tree[i].cost + dist;
+                float new_cost = tree[i].cost + dist;
                 if (new_cost < min_cost) {
                     // 检查路径是否无碰撞
                     int collision_detected = 0;
-                    double test_angles[3];
-                    double step = 0.1;
+                    float test_angles[3];
+                    float step = 0.1;
                     int steps = (int)(dist / step);
                     
                     // 插值检查路径上的碰撞
                     for (int s = 1; s <= steps; s++) {
-                        double t = (double)s / steps;
+                        float t = (float)s / steps;
                         for (int j = 0; j < 3; j++) {
                             test_angles[j] = tree[i].joint_angles[j] + 
                                             t * (new_node.joint_angles[j] - tree[i].joint_angles[j]);
@@ -286,18 +292,18 @@ PlanningResult* plan_path(RRTStarPlanner* planner,
         
         // RRT*: 重布线
         for (int i = 0; i < node_count - 1; i++) {
-            double dist = calculate_distance(tree[i].joint_angles, new_node.joint_angles);
+            float dist = calculate_distance(tree[i].joint_angles, new_node.joint_angles);
             if (dist <= planner->search_radius) {
-                double alternative_cost = new_node.cost + dist;
+                float alternative_cost = new_node.cost + dist;
                 if (alternative_cost < tree[i].cost) {
                     // 检查路径是否无碰撞
                     int collision_detected = 0;
-                    double test_angles[3];
-                    double step = 0.1;
+                    float test_angles[3];
+                    float step = 0.1;
                     int steps = (int)(dist / step);
                     
                     for (int s = 1; s <= steps; s++) {
-                        double t = (double)s / steps;
+                        float t = (float)s / steps;
                         for (int j = 0; j < 3; j++) {
                             test_angles[j] = new_node.joint_angles[j] + 
                                             t * (tree[i].joint_angles[j] - new_node.joint_angles[j]);
@@ -317,7 +323,7 @@ PlanningResult* plan_path(RRTStarPlanner* planner,
         }
         
         // 检查是否到达目标
-        double goal_dist = calculate_distance(new_node.joint_angles, goal_angles);
+        float goal_dist = calculate_distance(new_node.joint_angles, goal_angles);
         if (goal_dist <= planner->goal_tolerance) {
             // 找到路径，回溯
             int path_length = 1;
@@ -340,7 +346,7 @@ PlanningResult* plan_path(RRTStarPlanner* planner,
             
             // 添加目标点
             Waypoint goal_node;
-            memcpy(goal_node.joint_angles, goal_angles, 3 * sizeof(double));
+            memcpy(goal_node.joint_angles, goal_angles, 3 * sizeof(float));
             forward_kinematics(planner, goal_angles, goal_node.joint_positions);
             goal_node.cost = new_node.cost + goal_dist;
             goal_node.parent_index = path_length - 2;
@@ -393,11 +399,11 @@ PlanningResult* smooth_path(const RRTStarPlanner* planner,
 }
 
 // 工具函数
-double random_double(double min, double max) {
-    return min + ((double)rand() / RAND_MAX) * (max - min);
+float random_float(float min, float max) {
+    return min + ((float)rand() / RAND_MAX) * (max - min);
 }
 
-double normalize_angle(double angle) {
+float normalize_angle(float angle) {
     while (angle > PI) angle -= 2*PI;
     while (angle < -PI) angle += 2*PI;
     return angle;
@@ -417,7 +423,7 @@ void free_planner(RRTStarPlanner* planner) {
 
 
 
-Waypoint* Get_Path(double start_angles[3], double goal_angles[3], RRTStarPlanner* planner, int *path_length)
+Waypoint* Get_Path(float start_angles[3], float goal_angles[3], RRTStarPlanner* planner, int *path_length)
 {
     Waypoint *path_buf = NULL;
     // 执行路径规划
@@ -444,3 +450,7 @@ Waypoint* Get_Path(double start_angles[3], double goal_angles[3], RRTStarPlanner
     free_planner(planner);
     return path_buf;
 }
+
+#ifdef __cplusplus
+}
+#endif

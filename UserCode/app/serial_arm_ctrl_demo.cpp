@@ -252,9 +252,9 @@ void Init(void* argument)
 void Action_A_Set()
 {
     int path_length = 0;
-    double start_angles[3];
-    double end_angles[3] = {q1 ,q2 ,q3};  // 目标位置
-    robot_arm->getJointAngles(&start_angles[0], &start_angles[1], &start_angles[2]);
+    float start_angles[3];
+    float end_angles[3] = {0.0f, 0.0f, 0.0f};  // 目标位置
+    robot_arm->getJointAngles(start_angles[0], start_angles[1], start_angles[2]);
     plan_path_buf = Get_Path(start_angles, end_angles, planner, &path_length);
     for (int i = 0; i < path_length; i++)
     {
