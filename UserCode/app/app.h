@@ -8,6 +8,10 @@
 #include "drivers/unitree_motor.h"
 #include "drivers/xgzp6847d.h"
 
+#include "libs/rrt_star_planner.h"
+
+
+
 // #include "interfaces/motor_if.h"
 #include "interfaces/arm_motor_if.h"
 

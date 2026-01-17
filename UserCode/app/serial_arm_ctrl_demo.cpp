@@ -11,7 +11,6 @@
 #include "stm32f4xx_hal_gpio.h"
 #include "stm32f4xx_hal_uart.h"
 
-
 #define UART_PC_HANDLER huart5
 
 extern UART_HandleTypeDef UART_PC_HANDLER;
@@ -19,7 +18,8 @@ extern UART_HandleTypeDef huart1;
 static uint8_t uart3_rx_buf[64];
 static volatile bool uart3_rx_flag    = false;
 static volatile uint16_t uart3_rx_len = 0;
-
+static Waypoint *plan_path_buf = NULL;
+static RRTStarPlanner* planner = NULL;
 
 DJI_t dji_motor_driver;
 DJI_t dji_gripper;
@@ -32,6 +32,7 @@ Arm::MotorCtrl* gripper_motor = NULL;
 
 // 控制器实例
 Arm::Controller* robot_arm = NULL;
+
 
 #ifdef __cplusplus
 extern "C" {
@@ -126,8 +127,8 @@ void Init(void* argument)
                         .abs_output_max = 5.0f,
                     },
                     (MotorPID_Config_t){
-                        .Kp             = 0.02f,
-                        .Ki             = 0.00305f, // 积分项
+                        .Kp             = 0.011f,
+                        .Ki             = 0.00105f, // 积分项
                         .Kd             = 0.0f,     //
                         .abs_output_max = 15.0f,    // 降低一半处理
                     });                             // 设置 PID
@@ -191,13 +192,13 @@ void Init(void* argument)
     arm_cfg.reduction_1 = 1.0f;                       // 大臂减速比 (例如 Unitree Go1 减速比)
     arm_cfg.reduction_2 = 100 * 187 * 1.5f / 3591.0f; // 小臂减速比 (例如 M3508 减速比)
     // arm_cfg.reduction_3 = 1.5f;                       // 吸盘关节减速比 (M2006)
-    arm_cfg.reduction_3 = 2.7f; // 吸盘关节减速比 (M2006)
+    arm_cfg.reduction_3 = 2.7f;                       // 吸盘关节减速比 (M2006)                
     // 关节零位偏移 (Degree)
     // 假设上电时大臂垂直地面 (90度)，小臂水平 (0度)
     // 如果电机上电位置为 0，则 offset_1 = 90
     arm_cfg.offset_1 = 0.0f;
-    arm_cfg.offset_2 = 162.0f;
-    arm_cfg.offset_3 = -90.0f;
+    arm_cfg.offset_2 = -27.0f;
+    arm_cfg.offset_3 = 94.0f;
     // arm_cfg.offset_2 = 90.0f;
     // arm_cfg.offset_3 = 0.0f;
 
@@ -211,6 +212,26 @@ void Init(void* argument)
     arm_cfg.j3_max_vel  = 3600.0f;
     arm_cfg.j3_max_acc  = 360.0f;
     arm_cfg.j3_max_jerk = 500.0f;
+
+    // 3.5 初始化路径规划器
+
+    // 初始化机械臂规划器（连杆长度分别为2.0, 1.5, 1.0，安全距离0.1）
+    planner = init_planner(2.0, 1.5, 1.0, 0.0, 0.0, 0.1);
+    
+    // 设置关节限制
+    set_joint_limits(planner, -3.14, 3.14, -2.09, 2.09, -2.09, 2.09);
+    
+    // 设置连杆宽度
+    set_link_width(planner, 0.05);
+    
+    // 设置规划参数
+    set_planning_parameters(planner, 0.2, 0.1, 3000, 0.1);
+    
+    // 添加障碍物
+    add_obstacle(planner, 1.5, 1.0, 0.3);  // 圆心(1.5,1.0)，半径0.3
+    add_obstacle(planner, -1.0, 1.5, 0.4); // 圆心(-1.0,1.5)，半径0.4
+    add_obstacle(planner, 0.5, -1.0, 0.2); // 圆心(0.5,-1.0)，半径0.2
+
 
     // 4. 实例化并初始化控制器
     static Arm::Controller ctrl(*joint1_motor, *joint2_motor, *gripper_motor, arm_cfg);
@@ -227,6 +248,27 @@ void Init(void* argument)
 
     osThreadExit();
 }
+// 调用完成一个动作
+void Action_A_Set()
+{
+    int path_length = 0;
+    double start_angles[3];
+    double end_angles[3] = {q1 ,q2 ,q3};  // 目标位置
+    robot_arm->getJointAngles(&start_angles[0], &start_angles[1], &start_angles[2]);
+    plan_path_buf = Get_Path(start_angles, end_angles, planner, &path_length);
+    for (int i = 0; i < path_length; i++)
+    {
+        robot_arm->setJointTarget(plan_path_buf[i].joint_angles[0],
+                                  plan_path_buf[i].joint_angles[1],
+                                  plan_path_buf[i].joint_angles[2]);  // 可能要角度换算
+        // 等待到达
+        while (!robot_arm->isArrived())
+        {
+            osDelay(5);
+        }
+    }
+}
+
 
 float q1, q2, q3;
 void MotorCtrl(void* argument)
