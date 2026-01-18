@@ -11,6 +11,7 @@
 #include "stm32f4xx_hal_gpio.h"
 #include "stm32f4xx_hal_uart.h"
 
+
 #define UART_PC_HANDLER huart5
 
 extern UART_HandleTypeDef UART_PC_HANDLER;
@@ -18,8 +19,7 @@ extern UART_HandleTypeDef huart1;
 static uint8_t uart3_rx_buf[64];
 static volatile bool uart3_rx_flag    = false;
 static volatile uint16_t uart3_rx_len = 0;
-static Waypoint *plan_path_buf = NULL;
-static RRTStarPlanner* planner = NULL;
+
 
 DJI_t dji_motor_driver;
 DJI_t dji_gripper;
@@ -32,7 +32,6 @@ Arm::MotorCtrl* gripper_motor = NULL;
 
 // 控制器实例
 Arm::Controller* robot_arm = NULL;
-
 
 #ifdef __cplusplus
 extern "C" {
@@ -192,7 +191,7 @@ void Init(void* argument)
     arm_cfg.reduction_1 = 1.0f;                       // 大臂减速比 (例如 Unitree Go1 减速比)
     arm_cfg.reduction_2 = 100 * 187 * 1.5f / 3591.0f; // 小臂减速比 (例如 M3508 减速比)
     // arm_cfg.reduction_3 = 1.5f;                       // 吸盘关节减速比 (M2006)
-    arm_cfg.reduction_3 = 2.7f;                       // 吸盘关节减速比 (M2006)                
+    arm_cfg.reduction_3 = 2.7f; // 吸盘关节减速比 (M2006)
     // 关节零位偏移 (Degree)
     // 假设上电时大臂垂直地面 (90度)，小臂水平 (0度)
     // 如果电机上电位置为 0，则 offset_1 = 90
@@ -213,26 +212,6 @@ void Init(void* argument)
     arm_cfg.j3_max_acc  = 360.0f;
     arm_cfg.j3_max_jerk = 500.0f;
 
-    // 3.5 初始化路径规划器
-
-    // 初始化机械臂规划器（连杆长度分别为2.0, 1.5, 1.0，安全距离0.1）
-    planner = init_planner(2.0, 1.5, 1.0, 0.0, 0.0, 0.1);
-    
-    // 设置关节限制
-    set_joint_limits(planner, -3.14, 3.14, -2.09, 2.09, -2.09, 2.09);
-    
-    // 设置连杆宽度
-    set_link_width(planner, 0.05);
-    
-    // 设置规划参数
-    set_planning_parameters(planner, 0.2, 0.1, 3000, 0.1);
-    
-    // 添加障碍物
-    add_obstacle(planner, 1.5, 1.0, 0.3);  // 圆心(1.5,1.0)，半径0.3
-    add_obstacle(planner, -1.0, 1.5, 0.4); // 圆心(-1.0,1.5)，半径0.4
-    add_obstacle(planner, 0.5, -1.0, 0.2); // 圆心(0.5,-1.0)，半径0.2
-
-
     // 4. 实例化并初始化控制器
     static Arm::Controller ctrl(*joint1_motor, *joint2_motor, *gripper_motor, arm_cfg);
     robot_arm = &ctrl;
@@ -248,27 +227,71 @@ void Init(void* argument)
 
     osThreadExit();
 }
-// 调用完成一个动作
-void Action_A_Set()
-{
-    int path_length = 0;
-    float start_angles[3];
-    float end_angles[3] = {0.0f, 0.0f, 0.0f};  // 目标位置
-    robot_arm->getJointAngles(start_angles[0], start_angles[1], start_angles[2]);
-    plan_path_buf = Get_Path(start_angles, end_angles, planner, &path_length);
-    for (int i = 0; i < path_length; i++)
-    {
-        robot_arm->setJointTarget(plan_path_buf[i].joint_angles[0],
-                                  plan_path_buf[i].joint_angles[1],
-                                  plan_path_buf[i].joint_angles[2]);  // 可能要角度换算
-        // 等待到达
-        while (!robot_arm->isArrived())
-        {
-            osDelay(5);
-        }
-    }
-}
 
+
+// --- 轨迹数据 ---
+// Process1
+static const float process1_traj[][3] = {
+    {3.141593f, -2.827433f, 0.000000f},
+    {3.000361f, -2.688597f, -0.001970f},
+    {2.865372f, -2.566211f, 0.001671f},
+    {2.728288f, -2.448021f, 0.007646f},
+    {2.525032f, -2.274048f, -0.003308f},
+    {2.317031f, -2.106882f, 0.001148f},
+    {2.184397f, -1.989168f, -0.012160f},
+    {2.051005f, -1.871886f, -0.010713f},
+    {1.928072f, -1.738172f, -0.028643f},
+    {1.732155f, -1.558632f, -0.014999f},
+    {1.600856f, -1.442883f, 0.006201f},
+    {1.400429f, -1.286767f, 0.001225f},
+    {1.275329f, -1.161723f, 0.008580f},
+    {1.087409f, -0.988449f, -0.016237f},
+    {0.957967f, -0.868879f, -0.020701f},
+    {0.776756f, -0.681631f, -0.020544f},
+    {0.711219f, -0.624120f, -0.018811f},
+    {0.527850f, -0.483824f, -0.010778f},
+    {0.398864f, -0.427611f, -0.043028f},
+    {0.234325f, -0.273950f, -0.033185f},
+    {0.125850f, -0.142338f, -0.053368f},
+    {0.000000f, 0.000000f, 0.000000f}
+};
+static const int process1_len = sizeof(process1_traj)/sizeof(process1_traj[0]);
+// Process2
+static const float process2_traj[][3] = {
+    {0.000000f, 0.000000f, 0.000000f},
+    {0.046095f, 0.146695f, 0.002017f},
+    {0.073150f, 0.220581f, 0.005211f},
+    {0.117630f, 0.357943f, 0.029283f},
+    {0.139245f, 0.432597f, 0.042472f},
+    {0.182444f, 0.580913f, 0.044316f},
+    {0.151884f, 0.791065f, 0.058143f},
+    {0.097523f, 1.004226f, 0.136580f},
+    {0.165343f, 1.159596f, 0.129640f},
+    {0.209266f, 1.293336f, 0.107277f},
+    {0.304751f, 1.484513f, 0.080762f},
+    {0.390983f, 1.535119f, 0.000000f},
+    {0.488183f, 1.671205f, 0.000000f},
+    {0.384871f, 1.822862f, 0.000000f}
+};
+static const int process2_len = sizeof(process2_traj)/sizeof(process2_traj[0]);
+// Process3
+static const float process3_traj[][3] = {
+    {0.384871f, 1.822862f, 0.000000f},
+    {0.263114f, 1.981565f, 0.003342f},
+    {0.171269f, 2.104145f, 0.000000f},
+    {0.174243f, 1.937333f, -0.009588f},
+    {0.147297f, 1.778970f, -0.033879f},
+    {0.104708f, 1.551748f, -0.064548f},
+    {0.054087f, 1.325416f, -0.071155f},
+    {0.031988f, 1.170462f, -0.050527f},
+    {0.022380f, 0.937288f, -0.036419f},
+    {-0.056023f, 0.745292f, -0.022871f},
+    {-0.059208f, 0.584665f, -0.026611f},
+    {-0.067586f, 0.367524f, -0.059808f},
+    {-0.152035f, 0.218699f, -0.038715f},
+    {0.000000f, 0.000000f, 0.000000f}
+};
+static const int process3_len = sizeof(process3_traj)/sizeof(process3_traj[0]);
 
 float q1, q2, q3;
 void MotorCtrl(void* argument)
@@ -276,11 +299,40 @@ void MotorCtrl(void* argument)
     // 等待系统稳定
     osDelay(4000);
 
+    // 自动轨迹播放（弧度转角度）
+    const float RAD2DEG = 180.0f / 3.1415926f;
+    if (robot_arm) {
+        // 播放 Process1
+        for (int i = 0; i < process1_len; ++i) {
+            robot_arm->setJointTarget(
+                process1_traj[i][0] * RAD2DEG,
+                process1_traj[i][1] * RAD2DEG,
+                process1_traj[i][2] * RAD2DEG);
+            osDelay(50); // 50ms 间隔，约20Hz
+        }
+        // 播放 Process2
+        for (int i = 0; i < process2_len; ++i) {
+            robot_arm->setJointTarget(
+                process2_traj[i][0] * RAD2DEG,
+                process2_traj[i][1] * RAD2DEG,
+                process2_traj[i][2] * RAD2DEG);
+            osDelay(50);
+        }
+        // 播放 Process3
+        for (int i = 0; i < process3_len; ++i) {
+            robot_arm->setJointTarget(
+                process3_traj[i][0] * RAD2DEG,
+                process3_traj[i][1] * RAD2DEG,
+                process3_traj[i][2] * RAD2DEG);
+            osDelay(50);
+        }
+    }
+
+    // 播放完毕后，恢复串口控制
     // 开启空闲中断接收 (DMA)
     HAL_UARTEx_ReceiveToIdle_DMA(&UART_PC_HANDLER, uart3_rx_buf, sizeof(uart3_rx_buf));
 
     char tx_buf[64];
-
     int vacuum_state = 0;
     for (;;)
     {
