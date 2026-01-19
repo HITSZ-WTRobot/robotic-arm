@@ -75,7 +75,7 @@ void Init(void* argument)
                                     .reverse    = false,
                                     .motor_type = M3508_C620,
                                     .hcan       = &hcan1,
-                                    .id1        = 6,
+                                    .id1        = 2,
                                 });
     DJI_Init(&dji_gripper, (DJI_Config_t){
                                .auto_zero  = true,
@@ -238,9 +238,8 @@ static const float action_init2get[][3] = {
     {2.811033f, 0.416359f, -0.115213f},
     {2.893193f, 0.279335f, 0.012483f},
     {3.020221f, 0.116612f, 0.107019f},
-    {3.141593f, 0.000000f, 0.000000f}
-};
-static const int action_init2get_len = sizeof(action_init2get)/sizeof(action_init2get[0]);
+    {3.141593f, 0.000000f, 0.000000f}};
+static const int action_init2get_len = sizeof(action_init2get) / sizeof(action_init2get[0]);
 // Process2
 static const float action_get2put[][3] = {
     {3.141593f, 0.000000f, 0.000000f},
@@ -258,9 +257,8 @@ static const float action_get2put[][3] = {
     {1.303263f, 1.360941f, 0.023491f},
     {1.120129f, 1.535119f, 0.000000f},
     {0.872948f, 1.671205f, 0.000000f},
-    {0.806432f, 1.822862f, 0.000000f}
-};
-static const int action_get2put_len = sizeof(action_get2put)/sizeof(action_get2put[0]);
+    {0.806432f, 1.822862f, 0.000000f}};
+static const int action_get2put_len = sizeof(action_get2put) / sizeof(action_get2put[0]);
 // Process3
 static const float action_put2get[][3] = {
     {0.806432f, 1.822862f, 0.000000f},
@@ -281,22 +279,27 @@ static const float action_put2get[][3] = {
     {2.610687f, 0.414082f, 0.077362f},
     {2.772510f, 0.233375f, 0.052287f},
     {2.975981f, 0.092036f, 0.009512f},
-    {3.141593f, 0.000000f, 0.000000f}
-};
-static const int action_put2get_len = sizeof(action_put2get)/sizeof(action_put2get[0]);
+    {3.141593f, 0.000000f, 0.000000f}};
+static const int action_put2get_len = sizeof(action_put2get) / sizeof(action_put2get[0]);
 
 // 弧度转角度
 static const float RAD2DEG = 180.0f / 3.1415926f;
 
 // 播放轨迹 helper
-static void Arm_Action(Arm::Controller* arm, const float traj[][3], int len) {
-    if (!arm) return;
-    for (int i = 0; i < len; ++i) {
+static void Arm_Action(Arm::Controller* arm, const float traj[][3], int len)
+{
+    if (!arm)
+        return;
+    for (int i = 0; i < len; ++i)
+    {
         arm->setJointTarget(
             traj[i][0] * RAD2DEG,
             traj[i][1] * RAD2DEG,
             traj[i][2] * RAD2DEG);
-        osDelay(50); // 50ms 间隔，约20Hz
+        while (!arm->isArrived())
+        {
+            osDelay(10);
+        }
     }
 }
 
@@ -306,7 +309,8 @@ void MotorCtrl(void* argument)
     // 等待系统稳定
     osDelay(4000);
 
-    if (robot_arm) {
+    if (robot_arm)
+    {
         Arm_Action(robot_arm, action_init2get, action_init2get_len);
         osDelay(5000);
         Arm_Action(robot_arm, action_get2put, action_get2put_len);
