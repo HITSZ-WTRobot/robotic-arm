@@ -85,18 +85,6 @@ void Init(void* argument)
                                .id1        = 1,
                            });
 
-    // 检查 DJI 电机连接 (等待反馈)
-    // uint32_t start_tick = HAL_GetTick();
-    // while (dji_motor_driver.feedback_count == 0 || dji_gripper.feedback_count == 0)
-    // {
-    //     if (HAL_GetTick() - start_tick > 3000)
-    //     {
-    //         // 超时处理: 可以在这里报错或死循环
-    //         break;
-    //     }
-    //     osDelay(10);
-    // }
-
     // 注册 UART 回调
     HAL_UART_RegisterRxEventCallback(&huart1, Unitree_RxEventCallback);
     HAL_UART_RegisterCallback(&huart1, HAL_UART_TX_COMPLETE_CB_ID, Unitree_TxCpltCallback);
@@ -112,11 +100,8 @@ void Init(void* argument)
                                         });
     Unitree_SetCmd(&unitree_motor_driver, 1, 0, 0, 0, 0, 0);
     Unitree_SendCommand(&unitree_motor_driver);
-     osDelay(10);
-    // if (unitree_motor_driver.feedback.rx_count == 0)
-    // {
-    //     // 超时处理: 可以在这里报错或死循环
-    // }
+    osDelay(10);
+
     // 2. 实例化电机接口
     // 大臂 (Unitree)
     static Arm::MotorCtrl m1(&unitree_motor_driver, Arm::ControlMode::PositionPD_VelocityFF, 1);
@@ -190,16 +175,14 @@ void Init(void* argument)
     arm_cfg.g           = 9.81f;
     arm_cfg.reduction_1 = 1.0f;                       // 大臂减速比 (例如 Unitree Go1 减速比)
     arm_cfg.reduction_2 = 100 * 187 * 1.5f / 3591.0f; // 小臂减速比 (例如 M3508 减速比)
-    // arm_cfg.reduction_3 = 1.5f;                       // 吸盘关节减速比 (M2006)
-    arm_cfg.reduction_3 = 2.7f; // 吸盘关节减速比 (M2006)
+    arm_cfg.reduction_3 = 2.7f;                       // 吸盘关节减速比 (M2006)
+
     // 关节零位偏移 (Degree)
     // 假设上电时大臂垂直地面 (90度)，小臂水平 (0度)
     // 如果电机上电位置为 0，则 offset_1 = 90
     arm_cfg.offset_1 = 0.0f;
     arm_cfg.offset_2 = 162.0f;
     arm_cfg.offset_3 = -90.0f;
-    // arm_cfg.offset_2 = 90.0f;
-    // arm_cfg.offset_3 = 0.0f;
 
     // 运动学限制 (Degree)
     arm_cfg.j1_max_vel  = 360.0f;
@@ -231,7 +214,7 @@ void Init(void* argument)
 
 // --- 轨迹数据 ---
 // Process1
-static const float process1_traj[][3] = {
+static const float action_init2get[][3] = {
     {3.141593f, -2.827433f, 0.000000f},
     {3.000361f, -2.688597f, -0.001970f},
     {2.865372f, -2.566211f, 0.001671f},
@@ -255,9 +238,9 @@ static const float process1_traj[][3] = {
     {0.125850f, -0.142338f, -0.053368f},
     {0.000000f, 0.000000f, 0.000000f}
 };
-static const int process1_len = sizeof(process1_traj)/sizeof(process1_traj[0]);
+static const int action_init2get_len = sizeof(action_init2get)/sizeof(action_init2get[0]);
 // Process2
-static const float process2_traj[][3] = {
+static const float action_get2put[][3] = {
     {0.000000f, 0.000000f, 0.000000f},
     {0.046095f, 0.146695f, 0.002017f},
     {0.073150f, 0.220581f, 0.005211f},
@@ -273,9 +256,9 @@ static const float process2_traj[][3] = {
     {0.488183f, 1.671205f, 0.000000f},
     {0.384871f, 1.822862f, 0.000000f}
 };
-static const int process2_len = sizeof(process2_traj)/sizeof(process2_traj[0]);
+static const int action_get2put_len = sizeof(action_get2put)/sizeof(action_get2put[0]);
 // Process3
-static const float process3_traj[][3] = {
+static const float action_put2get[][3] = {
     {0.384871f, 1.822862f, 0.000000f},
     {0.263114f, 1.981565f, 0.003342f},
     {0.171269f, 2.104145f, 0.000000f},
@@ -291,7 +274,22 @@ static const float process3_traj[][3] = {
     {-0.152035f, 0.218699f, -0.038715f},
     {0.000000f, 0.000000f, 0.000000f}
 };
-static const int process3_len = sizeof(process3_traj)/sizeof(process3_traj[0]);
+static const int action_put2get_len = sizeof(action_put2get)/sizeof(action_put2get[0]);
+
+// 弧度转角度
+static const float RAD2DEG = 180.0f / 3.1415926f;
+
+// 播放轨迹 helper
+static void Arm_Action(Arm::Controller* arm, const float traj[][3], int len) {
+    if (!arm) return;
+    for (int i = 0; i < len; ++i) {
+        arm->setJointTarget(
+            traj[i][0] * RAD2DEG,
+            traj[i][1] * RAD2DEG,
+            traj[i][2] * RAD2DEG);
+        osDelay(50); // 50ms 间隔，约20Hz
+    }
+}
 
 float q1, q2, q3;
 void MotorCtrl(void* argument)
@@ -299,33 +297,12 @@ void MotorCtrl(void* argument)
     // 等待系统稳定
     osDelay(4000);
 
-    // 自动轨迹播放（弧度转角度）
-    const float RAD2DEG = 180.0f / 3.1415926f;
     if (robot_arm) {
-        // 播放 Process1
-        for (int i = 0; i < process1_len; ++i) {
-            robot_arm->setJointTarget(
-                process1_traj[i][0] * RAD2DEG,
-                process1_traj[i][1] * RAD2DEG,
-                process1_traj[i][2] * RAD2DEG);
-            osDelay(50); // 50ms 间隔，约20Hz
-        }
-        // 播放 Process2
-        for (int i = 0; i < process2_len; ++i) {
-            robot_arm->setJointTarget(
-                process2_traj[i][0] * RAD2DEG,
-                process2_traj[i][1] * RAD2DEG,
-                process2_traj[i][2] * RAD2DEG);
-            osDelay(50);
-        }
-        // 播放 Process3
-        for (int i = 0; i < process3_len; ++i) {
-            robot_arm->setJointTarget(
-                process3_traj[i][0] * RAD2DEG,
-                process3_traj[i][1] * RAD2DEG,
-                process3_traj[i][2] * RAD2DEG);
-            osDelay(50);
-        }
+        Arm_Action(robot_arm, action_init2get, action_init2get_len);
+        osDelay(5000);
+        Arm_Action(robot_arm, action_get2put, action_get2put_len);
+        osDelay(5000);
+        Arm_Action(robot_arm, action_put2get, action_put2get_len);
     }
 
     // 播放完毕后，恢复串口控制
@@ -354,7 +331,6 @@ void MotorCtrl(void* argument)
                     robot_arm->setJointTarget(q1, q2, q3);
                 }
                 HAL_GPIO_WritePin(GPIOE, GPIO_PIN_6, (GPIO_PinState)!vacuum_state);
-                // HAL_GPIO_WritePin(GPIOB, GPIO_PIN_9, (GPIO_PinState)vacuum_state);
             }
 
             uart3_rx_flag = false;
@@ -369,7 +345,6 @@ void MotorCtrl(void* argument)
             robot_arm->getJointAngles(cur_q1, cur_q2, cur_q3);
 
             // float pressure_kpa = pressure_sensor.readPressure() / 1000.0f;
-
             float pressure_kpa = 100.0f;
             int len            = sprintf(tx_buf, "%.2f, %.2f, %.2f, %.2f\n", cur_q1, cur_q2, cur_q3, pressure_kpa);
 
