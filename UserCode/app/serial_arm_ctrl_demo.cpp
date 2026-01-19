@@ -238,9 +238,8 @@ static const float action_init2get[][3] = {
     {2.624715f, 0.485858f, 0.000000f},
     {2.766650f, 0.305219f, 0.000000f},
     {2.938274f, 0.160281f, 0.000000f},
-    {3.141593f, -0.000000f, 0.000000f}
-};
-static const int action_init2get_len = sizeof(action_init2get)/sizeof(action_init2get[0]);
+    {3.141593f, -0.000000f, 0.000000f}};
+static const int action_init2get_len = sizeof(action_init2get) / sizeof(action_init2get[0]);
 // Process2
 static const float action_get2put[][3] = {
     {3.141593f, -0.000000f, -1.570796f},
@@ -260,9 +259,8 @@ static const float action_get2put[][3] = {
     {2.668453f, -1.419932f, 0.322275f},
     {2.650535f, -1.579094f, 0.469397f},
     {2.596534f, -1.647050f, 0.621313f},
-    {2.719973f, -1.835932f, 0.686755f}
-};
-static const int action_get2put_len = sizeof(action_get2put)/sizeof(action_get2put[0]);
+    {2.719973f, -1.835932f, 0.686755f}};
+static const int action_get2put_len = sizeof(action_get2put) / sizeof(action_get2put[0]);
 // Process3
 static const float action_put2get[][3] = {
     {2.719973f, -1.835932f, 0.686755f},
@@ -279,9 +277,8 @@ static const float action_put2get[][3] = {
     {3.028295f, -0.421757f, 0.120946f},
     {3.059485f, -0.381815f, 0.057691f},
     {3.087053f, -0.206407f, 0.027516f},
-    {3.141593f, 0.000000f, 0.000000f}
-};
-static const int action_put2get_len = sizeof(action_put2get)/sizeof(action_put2get[0]);
+    {3.141593f, 0.000000f, 0.000000f}};
+static const int action_put2get_len = sizeof(action_put2get) / sizeof(action_put2get[0]);
 
 // 弧度转角度
 static const float RAD2DEG = 180.0f / 3.1415926f;
@@ -293,14 +290,22 @@ static void Arm_Action(Arm::Controller* arm, const float traj[][3], int len)
         return;
     for (int i = 0; i < len; ++i)
     {
+        float t1, t2, t3;
         arm->setJointTarget(
             traj[i][0] * RAD2DEG,
             traj[i][1] * RAD2DEG,
-            traj[i][2] * RAD2DEG);
-        while (!arm->isArrived())
-        {
-            osDelay(10);
-        }
+            traj[i][2] * RAD2DEG,
+            &t1, &t2, &t3);
+
+        float max_t = t1 > t2 ? t1 : t2;
+        if (t3 > max_t)
+            max_t = t3;
+
+        uint32_t run_time = (uint32_t)(max_t * 1000);
+        if (run_time > 20)
+            run_time -= 20;
+
+        osDelay(run_time);
     }
 }
 
