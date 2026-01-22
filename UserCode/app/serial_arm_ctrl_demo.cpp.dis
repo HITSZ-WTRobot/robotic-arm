@@ -62,8 +62,7 @@ void TIM_Callback(TIM_HandleTypeDef* htim)
     // 发送 CAN 指令 (DJI)
     DJI_SendSetIqCommand(&hcan1, IQ_CMD_GROUP_1_4);
     DJI_SendSetIqCommand(&hcan1, IQ_CMD_GROUP_5_8);
-    // Unitree 的发送
-    Unitree_SendCommand(&unitree_motor_driver);
+    
 }
 
 void Init(void* argument)
@@ -87,29 +86,23 @@ void Init(void* argument)
                                .hcan       = &hcan1,
                                .id1        = 1,
                            });
-
-    // 注册 UART 回调
-    // HAL_UART_RegisterRxEventCallback(&huart1, Unitree_RxEventCallback);
-    // HAL_UART_RegisterCallback(&huart1, HAL_UART_TX_COMPLETE_CB_ID, Unitree_TxCpltCallback);
-
     // 初始化达妙驱动 (DM-J10010L, CAN2)
-    DM_Config_t dm_cfg;
-    dm_cfg.can_handle  = &hcan2;
-    dm_cfg.ctrl_mode   = DM_MIT;
-    dm_cfg.can_id      = 0x01;
-    dm_cfg.P_MAX       = 12.5f;
-    dm_cfg.V_MAX       = 30.0f;
-    dm_cfg.T_MAX       = 10.0f;
-    dm_cfg.POS_MAX_RAD = 3.14159f;
-    dm_cfg.VEL_MAX_RAD = 5.0f;
+    DM_CAN_FilterInit(&hcan2, 14);
+    HAL_CAN_RegisterCallback(&hcan2, HAL_CAN_RX_FIFO0_MSG_PENDING_CB_ID, DM_CAN_Fifo0ReceiveCallback);
+    CAN_Start(&hcan2, CAN_IT_RX_FIFO0_MSG_PENDING);
 
-    DM_Init(&dm_motor_driver, dm_cfg);
-    // 注册 CAN 回调
-    CAN_AttachCallback(&hcan2, 0x01, DM_CanRxCallback, &dm_motor_driver);
-
+    DM_Config_t config = {
+        .hcan        = &hcan2,
+        .id0         = 1,
+        .POS_MAX_RAD = 3.1416f,
+        .VEL_MAX_RAD = 40.0f * 3.1416f / 180.0f,
+        .T_MAX       = 2.0f,
+        .mode        = DM_MODE_VEL,
+        .motor_type  = DM_J10010L,
+    };
+    DM_Init(&dm_motor_driver, &config);
     // 使能电机 (进入 MIT 模式)
-    osDelay(100);
-    DM_Enable(&dm_motor_driver);
+    DM_MIT_SendSetCmd(&dm_motor_driver, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f);
     osDelay(100);
 
     // 2. 实例化电机接口
@@ -199,9 +192,6 @@ void Init(void* argument)
     // 4. 实例化并初始化控制器
     static Arm::Controller ctrl(*joint1_motor, *joint2_motor, *gripper_motor, arm_cfg);
     robot_arm = &ctrl;
-    osDelay(50); // 等待电机反馈更新
-    Unitree_SetCmd(&unitree_motor_driver, 1, 0, 0, 0, 0, 0);
-    Unitree_SendCommand(&unitree_motor_driver);
     osDelay(2000);
     robot_arm->init(); // 读取当前位置，防止跳变
 
