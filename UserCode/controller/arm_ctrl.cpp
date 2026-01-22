@@ -207,7 +207,8 @@ namespace Arm
         if (soft_start_scale_ < 1.0f)
         {
             soft_start_scale_ += dt / soft_start_duration_;
-            if (soft_start_scale_ > 1.0f) soft_start_scale_ = 1.0f;
+            if (soft_start_scale_ > 1.0f)
+                soft_start_scale_ = 1.0f;
         }
 
         // 1. 计算轨迹生成的新目标状态

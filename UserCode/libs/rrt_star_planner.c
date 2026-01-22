@@ -31,7 +31,8 @@ RRTStarPlanner* init_planner(float link1, float link2, float link3,
     planner->obstacle_count = 0;
     planner->safety_margin = safety_margin;
     
-    srand((unsigned int)time(NULL));
+    // srand((unsigned int)time(NULL)); // 嵌入式系统默认无 RTC 支持 time()
+    srand(0); //由于工程配置原因，暂时使用固定随机数种子
     
     return planner;
 }
@@ -175,7 +176,19 @@ float calculate_distance(const float angles1[3], const float angles2[3]) {
 PlanningResult* plan_path(RRTStarPlanner* planner, 
                          const float start_angles[3], 
                          const float goal_angles[3]) {
+    PlanningResult* result = (PlanningResult*)malloc(sizeof(PlanningResult));
+    if (!result) return NULL; // 内存分配失败
+
+    result->success = 0;
+    result->path = NULL;
+    result->path_length = 0;
+
     Waypoint* tree = (Waypoint*)malloc(MAX_NODES * sizeof(Waypoint));
+    if (!tree) {
+        free(result);
+        return NULL; // 内存不足，防止 Hard Fault
+    }
+
     int node_count = 0;
     
     // 初始化起始点
@@ -187,7 +200,7 @@ PlanningResult* plan_path(RRTStarPlanner* planner,
     
     tree[node_count++] = start_node;
     
-    PlanningResult* result = (PlanningResult*)malloc(sizeof(PlanningResult));
+    // PlanningResult* result = (PlanningResult*)malloc(sizeof(PlanningResult));
     result->success = 0;
     result->path = NULL;
     result->path_length = 0;
@@ -426,28 +439,51 @@ void free_planner(RRTStarPlanner* planner) {
 Waypoint* Get_Path(float start_angles[3], float goal_angles[3], RRTStarPlanner* planner, int *path_length)
 {
     Waypoint *path_buf = NULL;
+    *path_length = 0;
+
     // 执行路径规划
     PlanningResult* result = plan_path(planner, start_angles, goal_angles);
 
-    if (result->success)
+    if (result && result->success)
     {
-        // 平滑路径处理
-        PlanningResult* smoothed = smooth_path(planner, result);
-        if (smoothed)
+        // 只有当路径长度大于等于3时才进行平滑，否则直接使用原路径
+        // 因为 smooth_path 在路径过短时会返回 NULL
+        if (result->path_length >= 3) 
         {
-            // smoothed->path[i].joint_angles[k]  为第 i 个路径点的第 k 个关节角度（弧度）
-            path_buf = smoothed->path;
-            *path_length = smoothed->path_length;
-            free_planning_result(smoothed);
+            // 平滑路径处理
+            PlanningResult* smoothed = smooth_path(planner, result);
+            if (smoothed)
+            {
+                path_buf = smoothed->path;
+                *path_length = smoothed->path_length;
+                
+                // 关键修正：将 path 指针置空，避免 free_planning_result 释放我们需要返回的内存
+                smoothed->path = NULL;
+                free_planning_result(smoothed);
+            }
+            else 
+            {
+                // 如果平滑失败（例如内存不足），回退使用原始路径
+                goto use_original_path;
+            }
         }
-        else 
+        else
         {
-            return NULL;
+use_original_path:
+            // 路径太短或平滑失败，直接复制原始路径
+            // 注意：因为 result 最后会被 free，我们需要将 path 的所有权接管过来
+            // 或者深拷贝一份。这里选择接管所有权。
+            path_buf = result->path;
+            *path_length = result->path_length;
+            result->path = NULL; // 断开指针，防止被 free_planning_result 释放
         }
     }
+    
     // 清理资源
-    free_planning_result(result);
-    free_planner(planner);
+    if (result) {
+        free_planning_result(result);
+    }
+    
     return path_buf;
 }
 

@@ -5,11 +5,8 @@
 #include "bsp/can_driver.h"
 #include "controller/arm_ctrl.h"
 #include "drivers/DJI.h"
-#include "drivers/unitree_motor.h"
+#include "drivers/DM.h"
 #include "drivers/xgzp6847d.h"
-
-#include "libs/rrt_star_planner.h"
-
 
 
 // #include "interfaces/motor_if.h"

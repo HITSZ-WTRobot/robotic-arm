@@ -4,6 +4,7 @@
 #include "cmsis_os2.h"
 #include "controller/arm_ctrl.h" // 引入控制器头文件
 #include "drivers/DJI.h"
+#include "drivers/DM.h"          // 引入达妙驱动
 #include "drivers/unitree_motor.h"
 #include "interfaces/arm_motor_if.h"
 #include "libs/pid_motor.h"
@@ -23,7 +24,9 @@ static volatile uint16_t uart3_rx_len = 0;
 
 DJI_t dji_motor_driver;
 DJI_t dji_gripper;
-UnitreeMotor unitree_motor_driver;
+// UnitreeMotor unitree_motor_driver;
+DM_t dm_motor_driver; // 替换为达妙电机
+
 XGZP6847D pressure_sensor(&hi2c1, 200.0f);
 
 Arm::MotorCtrl* joint1_motor  = NULL;
@@ -72,50 +75,48 @@ void Init(void* argument)
     CAN_Start(&hcan1, CAN_IT_RX_FIFO0_MSG_PENDING);
     DJI_Init(&dji_motor_driver, (DJI_Config_t){
                                     .auto_zero  = true,
-                                    .reverse    = false,
+                                    .reverse    = true,
                                     .motor_type = M3508_C620,
                                     .hcan       = &hcan1,
                                     .id1        = 2,
                                 });
     DJI_Init(&dji_gripper, (DJI_Config_t){
                                .auto_zero  = true,
-                               .reverse    = false,
+                               .reverse    = true,
                                .motor_type = M2006_C610,
                                .hcan       = &hcan1,
                                .id1        = 1,
                            });
 
     // 注册 UART 回调
-    HAL_UART_RegisterRxEventCallback(&huart1, Unitree_RxEventCallback);
-    HAL_UART_RegisterCallback(&huart1, HAL_UART_TX_COMPLETE_CB_ID, Unitree_TxCpltCallback);
+    // HAL_UART_RegisterRxEventCallback(&huart1, Unitree_RxEventCallback);
+    // HAL_UART_RegisterCallback(&huart1, HAL_UART_TX_COMPLETE_CB_ID, Unitree_TxCpltCallback);
 
-    // 初始化 Unitree 驱动
-    Unitree_Init(&unitree_motor_driver, (Unitree_Config_t){
-                                            .huart           = &huart1,
-                                            .rs485_gpio_port = GPIOA,
-                                            .rs485_de_pin    = GPIO_PIN_8,
-                                            .id              = 2,     // ID 为 2
-                                            .reverse         = true,  // 反转方向
-                                            .reduction_rate  = 6.33f, // 减速比 6.33
-                                        });
-    Unitree_SetCmd(&unitree_motor_driver, 1, 0, 0, 0, 0, 0);
-    Unitree_SendCommand(&unitree_motor_driver);
-    osDelay(10);
+    // 初始化达妙驱动 (DM-J10010L, CAN2)
+    DM_Config_t dm_cfg;
+    dm_cfg.can_handle  = &hcan2;
+    dm_cfg.ctrl_mode   = DM_MIT;
+    dm_cfg.can_id      = 0x01;
+    dm_cfg.P_MAX       = 12.5f;
+    dm_cfg.V_MAX       = 30.0f;
+    dm_cfg.T_MAX       = 10.0f;
+    dm_cfg.POS_MAX_RAD = 3.14159f;
+    dm_cfg.VEL_MAX_RAD = 5.0f;
+
+    DM_Init(&dm_motor_driver, dm_cfg);
+    // 注册 CAN 回调
+    CAN_AttachCallback(&hcan2, 0x01, DM_CanRxCallback, &dm_motor_driver);
+
+    // 使能电机 (进入 MIT 模式)
+    osDelay(100);
+    DM_Enable(&dm_motor_driver);
+    osDelay(100);
 
     // 2. 实例化电机接口
-    // 大臂 (Unitree)
-    static Arm::MotorCtrl m1(&unitree_motor_driver, Arm::ControlMode::PositionPD_VelocityFF, 1);
-    m1.SetCtrlParam((PD_Config_t){
-                        .Kp             = 3.0f,
-                        .Kd             = 0.1f,
-                        .abs_output_max = 5.0f,
-                    },
-                    (MotorPID_Config_t){
-                        .Kp             = 0.02f,
-                        .Ki             = 0.00305f, // 积分项
-                        .Kd             = 0.0f,     //
-                        .abs_output_max = 15.0f,    // 降低一半处理
-                    });                             // 设置 PID
+    // 大臂 (Damiao J10010L)
+    static Arm::MotorCtrl m1(&dm_motor_driver, Arm::ControlMode::MIT);
+    // MIT 参数: Kp, Kd, Ki, I_limit
+    m1.SetMitParams(30.0f, 1.0f, 5.0f, 2.0f);
     joint1_motor = &m1;
 
     // 小臂 (DJI)
@@ -180,9 +181,9 @@ void Init(void* argument)
     // 关节零位偏移 (Degree)
     // 假设上电时大臂垂直地面 (90度)，小臂水平 (0度)
     // 如果电机上电位置为 0，则 offset_1 = 90
-    arm_cfg.offset_1 = 0.0f;
-    arm_cfg.offset_2 = 162.0f;
-    arm_cfg.offset_3 = -90.0f;
+    arm_cfg.offset_1 = 180.0f;
+    arm_cfg.offset_2 = -162.0f;
+    arm_cfg.offset_3 = 90.0f;
 
     // 运动学限制 (Degree)
     arm_cfg.j1_max_vel  = 360.0f;
@@ -302,8 +303,7 @@ static void Arm_Action(Arm::Controller* arm, const float traj[][3], int len)
             max_t = t3;
 
         uint32_t run_time = (uint32_t)(max_t * 1000);
-        if (run_time > 20)
-            run_time -= 20;
+        run_time          = run_time / 2;
 
         osDelay(run_time);
     }

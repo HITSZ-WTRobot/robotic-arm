@@ -3,6 +3,7 @@
 #include <cstdint>
 #include "drivers/DJI.h"
 #include "drivers/unitree_motor.h"
+#include "drivers/DM.h"
 #include "libs/pid_motor.h"
 #include "libs/pid_pd.h"
 
@@ -12,7 +13,8 @@ namespace Arm
     enum class MotorType
     {
         DJI,
-        Unitree
+        Unitree,
+        DM // Add DM Motor Type
     };
 
     enum class ControlMode
@@ -21,11 +23,12 @@ namespace Arm
         PositionVelocityPID,   // 1. 位置-速度串级 PID
         VelocityPID,           // 2. 纯速度环 PID
         PositionPD_VelocityFF, // 3. 位置 PD + 速度前馈
-        DirectTorque           // 4. 直接力矩/电流控制
+        DirectTorque,          // 4. 直接力矩/电流控制
+        MIT                    // 5. 达妙 MIT 模式 (Kp, Kd, Pos, Vel, Tff + K_i积分微调)
     };
 
     /**
-     * @brief 机械臂关节电机统一接口 (支持 DJI 和 Unitree)
+     * @brief 机械臂关节电机统一接口 (支持 DJI, Unitree, DM)
      */
     class MotorCtrl
     {
@@ -45,6 +48,13 @@ namespace Arm
          * @param torque_ratio 力矩系数 (通常为1.0, 但为了统一接口保留)
          */
         MotorCtrl(::UnitreeMotor* driver, ControlMode mode, float torque_ratio = 1.0f);
+
+        /**
+         * @brief 构造 DM 电机实例
+         * @param driver 达妙电机驱动句柄 (DM_t*)
+         * @param mode 控制模式 (推荐 MIT)
+         */
+        MotorCtrl(DM_t* driver, ControlMode mode);
 
         ~MotorCtrl() = default;
 
@@ -70,14 +80,23 @@ namespace Arm
         void SetCtrlParam(const MotorPID_Config_t& vel_config);
 
         /**
+         * @brief 设置 MIT 模式参数 (用于 DM 电机)
+         * @param kp 刚度系数
+         * @param kd 阻尼系数
+         * @param ki 积分微调系数 (如果不使用积分项，设为0)
+         * @param i_limit 积分限幅
+         */
+        void SetMitParams(float kp, float kd, float ki = 0.0f, float i_limit = 0.0f);
+
+        /**
          * @brief 统一设置控制目标
          *
          * @param primary_ref   主目标值
-         *                      - 位置相关模式: 目标角度 (Degree)
+         *                      - 位置相关模式/MIT: 目标角度 (Degree)
          *                      - 速度模式:     目标速度 (Degree/s)
          *                      - 力矩模式:     目标力矩 (Nm)
          * @param secondary_ref 次级目标值 (前馈项)
-         *                      - PositionPD_VelocityFF 模式: 前馈速度 (Degree/s)
+         *                      - PositionPD_VelocityFF/MIT: 前馈速度 (Degree/s)
          *                      - 其他模式: 通常为 0
          * @param torque_ff     前馈力矩 (Nm)
          *                      - 所有模式下，该值都会直接叠加到最终输出中
@@ -97,8 +116,9 @@ namespace Arm
 
         /**
          * @brief 更新控制回路 (需周期性调用)
+         * @param dt 控制周期 (秒), 默认 0.001f
          */
-        void update();
+        void update(float dt = 0.001f);
 
         /**
          * @brief 获取当前电机角度，单位：度 (Degree)
@@ -127,6 +147,13 @@ namespace Arm
         float torque_ratio_;
         uint32_t pos_vel_ratio_ = 1;
         uint32_t update_count_  = 0;
+
+        // MIT 模式参数
+        float mit_kp_      = 0.0f;
+        float mit_kd_      = 0.0f;
+        float mit_ki_      = 0.0f;
+        float mit_i_limit_ = 0.0f;
+        float mit_sum_err_ = 0.0f; // 积分项累积误差
 
         union
         {

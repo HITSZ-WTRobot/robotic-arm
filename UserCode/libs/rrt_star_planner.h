@@ -4,7 +4,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <math.h>
-#include <time.h>
 #include <string.h>
 
 #ifdef __cplusplus
@@ -13,7 +12,10 @@ extern "C"
 #endif
 
 #define PI 3.14159265358979323846f
-#define MAX_NODES 10000
+// 警告：STM32F407 SRAM有限(128+64KB)。
+// 10000个节点需要 ~520KB RAM，会导致 malloc 失败。
+// 降至 2000 个节点 (~100KB)，需确保堆空间(Heap)足够大。
+#define MAX_NODES 2000
 #define MAX_OBSTACLES 100
 
 // 二维点结构
