@@ -10,7 +10,7 @@
 
 
 // #include "interfaces/motor_if.h"
-#include "interfaces/arm_motor_if.h"
+#include "interfaces/arm_motor_mit.h"
 
 #include "can.h"
 #include "tim.h"

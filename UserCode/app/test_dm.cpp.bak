@@ -1,0 +1,189 @@
+#include <math.h>
+#include "app.h"
+#include "bsp/can_driver.h"
+#include "can.h"
+#include "cmsis_os2.h"
+#include "controller/arm_ctrl.h" // 引入控制器头文件
+#include "drivers/DJI.h"
+#include "drivers/DM.h"
+#include "drivers/unitree_motor.h"
+#include "interfaces/arm_motor_mit.h"
+#include "libs/pid_motor.h"
+#include "stm32f407xx.h"
+#include "stm32f4xx_hal_can.h"
+#include "stm32f4xx_hal_gpio.h"
+#include "stm32f4xx_hal_uart.h"
+
+
+#define UART_PC_HANDLER huart5
+
+extern UART_HandleTypeDef UART_PC_HANDLER;
+extern UART_HandleTypeDef huart1;
+static uint8_t uart3_rx_buf[64];
+static volatile bool uart3_rx_flag    = false;
+static volatile uint16_t uart3_rx_len = 0;
+
+
+DJI_t dji_motor_driver;
+DJI_t dji_gripper;
+DM_t dm_motor1;
+XGZP6847D pressure_sensor(&hi2c1, 200.0f);
+
+Arm::MotorCtrl* joint1_motor  = NULL;
+Arm::MotorCtrl* joint2_motor  = NULL;
+Arm::MotorCtrl* gripper_motor = NULL;
+
+// 控制器实例
+Arm::Controller* robot_arm = NULL;
+
+#ifdef __cplusplus
+extern "C" {
+
+void HAL_UARTEx_RxEventCallback(UART_HandleTypeDef* huart, uint16_t Size)
+{
+    if (huart->Instance == UART_PC_HANDLER.Instance)
+    {
+        uart3_rx_len  = Size;
+        uart3_rx_flag = true;
+    }
+}
+
+// 定时器周期 (秒)
+static const float CONTROL_PERIOD = 0.001f; // 1ms
+
+void TIM_Callback(TIM_HandleTypeDef* htim)
+{
+    // 周期性更新控制回路 (1kHz)
+
+    // 发送 CAN 指令 (DJI)
+    // DJI_SendSetIqCommand(&hcan1, IQ_CMD_GROUP_1_4);
+    // DJI_SendSetIqCommand(&hcan1, IQ_CMD_GROUP_5_8);
+    // DM 的发送
+    // DM_Vel_SendSetCmd(DM_t *hdm, const float value_vel)
+}
+
+void Init(void* argument)
+{
+    DM_CAN_FilterInit(&hcan2, 14);
+    HAL_CAN_RegisterCallback(&hcan2, HAL_CAN_RX_FIFO0_MSG_PENDING_CB_ID, DM_CAN_Fifo0ReceiveCallback);
+    CAN_Start(&hcan2, CAN_IT_RX_FIFO0_MSG_PENDING);
+
+    DM_Config_t config = {
+        .hcan        = &hcan2,
+        .id0         = 1,
+        .POS_MAX_RAD = 12.5f,
+        .VEL_MAX_RAD = 25.0f,
+        .T_MAX       = 200.0f,
+        .mode        = DM_MODE_MIT,
+        .motor_type  = DM_J10010L,
+        .reverse     = true,
+    };
+    DM_Init(&dm_motor1, &config);
+    // 启动定时器
+    HAL_TIM_RegisterCallback(&htim6, HAL_TIM_PERIOD_ELAPSED_CB_ID, TIM_Callback);
+    HAL_TIM_Base_Start_IT(&htim6);
+
+    osThreadExit();
+}
+
+float pos_des, vel_des;
+float Kp = 150.0f;
+float Kd = 3.5f;
+
+void MotorCtrl(void* argument)
+{
+    // 等待系统稳定
+    osDelay(2000);
+
+    // 使能电机
+    // DM_Enable(&dm_motor1);
+
+    // 重力补偿参数
+    const float m1  = 1.2243f; // kg
+    const float lc1 = 0.171f;  // m (质心距离)
+    const float g   = 9.81f;   // m/s^2
+
+    // 获取当前位置以防止突变
+    float start_pos = dm_motor1.abs_angle;
+    float t         = 0.0f;
+    const float dt  = 0.002f;
+
+    for (;;)
+    {
+        // 状态机轨迹规划：极值点停顿 5 秒
+        static int m_state = 0; // 0:UP, 1:HOLD_TOP, 2:DOWN, 3:HOLD_BOTTOM
+        static float phase = 0.0f, hold_t = 0.0f;
+        float w = 0.8f, amp = 20.0f;
+
+        switch (m_state)
+        {
+        case 0: // MOVE_UP (0 -> TOP or BOTTOM -> TOP)
+            phase += w * dt;
+            if (phase >= 1.571f)
+            {
+                phase   = 1.571f;
+                m_state = 1;
+                hold_t  = 0;
+            }
+            pos_des = start_pos + amp * sinf(phase);
+            vel_des = amp * w * cosf(phase);
+            break;
+        case 1: // HOLD_TOP
+            hold_t += dt;
+            if (hold_t >= 5.0f)
+                m_state = 2;
+            pos_des = start_pos + amp;
+            vel_des = 0.0f;
+            break;
+        case 2: // MOVE_DOWN (TOP -> BOTTOM)
+            phase += w * dt;
+            if (phase >= 4.712f)
+            {
+                phase   = 4.712f;
+                m_state = 3;
+                hold_t  = 0;
+            }
+            pos_des = start_pos + amp * sinf(phase);
+            vel_des = amp * w * cosf(phase);
+            break;
+        case 3: // HOLD_BOTTOM
+            hold_t += dt;
+            if (hold_t >= 5.0f)
+            {
+                m_state = 0;
+                phase   = -1.571f;
+            }
+            pos_des = start_pos - amp;
+            vel_des = 0.0f;
+            break;
+        }
+
+        // 计算重力补偿
+        // T = m * g * l_c * cos(theta) (假设0度为水平，与地面夹角)
+        float current_rad    = dm_motor1.abs_angle * 3.14159f / 180.0f;
+        float gravity_torque = m1 * g * lc1 * cosf(current_rad);
+
+        // 摩擦力补偿 (Coulomb Friction Compensation)
+        // 根据实际情况调整 fric_val (通常0.5~1.5 Nm)
+        float fric_val    = 0.5f;
+        float fric_torque = 0.0f;
+
+        // 使用目标速度方向来决定补偿方向 (也可以用实际速度，但噪声大)
+        if (vel_des > 0.1f)
+            fric_torque = fric_val;
+        else if (vel_des < -0.1f)
+            fric_torque = -fric_val;
+
+        float t_ff_total = gravity_torque + fric_torque;
+
+        // MIT 模式控制
+        // 将重力补偿力矩叠加到前馈项 t_ff
+        DM_MIT_SendSetCmd(&dm_motor1, pos_des, vel_des, Kp, Kd, t_ff_total);
+
+        t += dt;
+        osDelay(2); // 500Hz
+    }
+}
+
+} // extern "C"
+#endif

@@ -11,7 +11,7 @@ static size_t map_size = 0;
 
 static float reduction_rate_map[DM_MOTOR_TYPE_COUNT] = {
     [DM_S3519]   = (19.203f),
-    [DM_J10010L] = (10.0f),
+    [DM_J10010L] = (1.0f),
 };
 
 static inline DM_t* getDMHandle(DM_t* motors[8],
@@ -75,6 +75,7 @@ void DM_Init(DM_t* hdm, const DM_Config_t* dm_config)
     hdm->VEL_MAX_RAD        = dm_config->VEL_MAX_RAD;
     hdm->T_MAX              = dm_config->T_MAX;
     hdm->mode               = dm_config->mode;
+    hdm->reverse            = dm_config->reverse;
     hdm->inv_reduction_rate = 1.0f / // 取倒数将除法转为乘法加快运算速度
                               ((dm_config->reduction_rate > 0 ? dm_config->reduction_rate
                                                               : 1.0f)        // 外接减速比
@@ -130,7 +131,8 @@ void DM_DataDecode(DM_t* hdm, const uint8_t data[8])
     const float feedback_vel = scale_vel * (float)(uint16_t)(data[3] << 4 | data[4] >> 4) -
                                hdm->VEL_MAX_RAD; // 反馈速度数据，达妙3519和2520反馈的数据是减速后的
     const float feedback_t = scale_t *
-                             (float)(uint16_t)((data[4] & 0x0F) << 8 | data[5]); // 反馈力矩数据
+                                 (float)(uint16_t)((data[4] & 0x0F) << 8 | data[5]) -
+                             hdm->T_MAX; // 反馈力矩数据
     const float angle = feedback_angle * 180.0f / 3.1416f;
     const float vel   = feedback_vel / 2.0f / 3.1416f * 60.0f;
 
@@ -200,7 +202,11 @@ void DM_Vel_SendSetCmd(DM_t* hdm, const float value_vel)
 {
     static uint8_t data[8] = {0};
 
-    const float value_vel_rad = value_vel * 2 * 3.1416f /
+    float vel_cmd = value_vel;
+    if (hdm->reverse)
+        vel_cmd *= -1.0f;
+
+    const float value_vel_rad = vel_cmd * 2 * 3.1416f /
                                 60.0f; // 达妙电机控制的即为输出轴的速度（uint:rad/s）
     dm_vel_set_command_data(hdm, value_vel_rad, data);
     CAN_SendMessage(hdm->hcan,
@@ -215,8 +221,13 @@ void DM_Vel_SendSetCmd(DM_t* hdm, const float value_vel)
 
 void DM_Pos_SendSetCmd(DM_t* hdm, const float value_pos)
 {
-    static uint8_t data[8]    = {0};
-    const float value_pos_rad = value_pos * 3.1416f / 180.0f;
+    static uint8_t data[8] = {0};
+
+    float pos_cmd = value_pos;
+    if (hdm->reverse)
+        pos_cmd *= -1.0f;
+
+    const float value_pos_rad = pos_cmd * 3.1416f / 180.0f;
     dm_pos_set_command_data(hdm, hdm->VEL_MAX, value_pos_rad, data);
     CAN_SendMessage(hdm->hcan,
                     &(CAN_TxHeaderTypeDef){
@@ -244,10 +255,23 @@ void DM_MIT_SendSetCmd(DM_t* hdm, float p_des, float v_des, float kp, float kd, 
     uint16_t p, v, kp_int, kd_int, t;
     uint8_t data[8];
 
+    // 处理反转 (kp, kd 为标量不需要反转)
+    if (hdm->reverse)
+    {
+        p_des *= -1.0f;
+        v_des *= -1.0f;
+        t_ff *= -1.0f;
+    }
+    float deg_to_rad = 3.1416f / 180.0f;
+    // 单位换算，不考虑减速比
+    //  位置: 输出轴 Deg -> 电机轴 Rad
+    float p_rotor_rad = p_des * deg_to_rad;
+    // 速度: 输出轴 Deg/s -> 电机轴 Rad/s
+    float v_rotor_rad = v_des * deg_to_rad;
     // 限制与转换
     // 注意：P_MAX, V_MAX, T_MAX 需与上位机/调试助手设置一致
-    p      = float_to_uint(p_des, -hdm->POS_MAX_RAD, hdm->POS_MAX_RAD, 16);
-    v      = float_to_uint(v_des, -hdm->VEL_MAX_RAD, hdm->VEL_MAX_RAD, 12);
+    p      = float_to_uint(p_rotor_rad, -hdm->POS_MAX_RAD, hdm->POS_MAX_RAD, 16);
+    v      = float_to_uint(v_rotor_rad, -hdm->VEL_MAX_RAD, hdm->VEL_MAX_RAD, 12);
     kp_int = float_to_uint(kp, 0, 500.0f, 12); // 假设最大KP 500
     kd_int = float_to_uint(kd, 0, 5.0f, 12);   // 假设最大KD 5
     t      = float_to_uint(t_ff, -hdm->T_MAX, hdm->T_MAX, 12);

@@ -1,6 +1,6 @@
 #pragma once
 
-#include "interfaces/arm_motor_if.h"
+#include "interfaces/arm_motor_mit.h"
 #include "libs/s_curve.h"
 
 namespace Arm
@@ -154,6 +154,9 @@ namespace Arm
          * @param tau3 [out] 吸盘关节补偿力矩
          */
         void calculateGravityComp(float q1, float q2, float q3, float& tau1, float& tau2, float& tau3);
+
+        // Connection State Monitoring
+        bool last_connected_ = false;
 
         MotorCtrl& joint1_; // 大臂
         MotorCtrl& joint2_; // 小臂

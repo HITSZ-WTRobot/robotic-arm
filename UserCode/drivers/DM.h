@@ -79,6 +79,7 @@ typedef struct
     DM_MODE_T          mode;
     DM_MotorType_t     motor_type;     //< 电机类型
     float              reduction_rate; ///< 外接减速比
+    bool               reverse;        //< 是否反转
 } DM_Config_t;
 
 #define __DM_GET_ANGLE(__DM_HANDLE__)    (((DM_t*) (__DM_HANDLE__))->abs_angle)

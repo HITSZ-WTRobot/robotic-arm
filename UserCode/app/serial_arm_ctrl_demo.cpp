@@ -4,19 +4,19 @@
 #include "cmsis_os2.h"
 #include "controller/arm_ctrl.h" // 引入控制器头文件
 #include "drivers/DJI.h"
-#include "drivers/DM.h"          // 引入达妙驱动
+#include "drivers/DM.h" // 引入达妙驱动
 #include "drivers/unitree_motor.h"
-#include "interfaces/arm_motor_if.h"
+#include "interfaces/arm_motor_mit.h" // 使用新的 MIT 接口
 #include "libs/pid_motor.h"
 #include "stm32f407xx.h"
 #include "stm32f4xx_hal_gpio.h"
 #include "stm32f4xx_hal_uart.h"
 
 
-#define UART_PC_HANDLER huart5
+#define UART_PC_HANDLER huart1
 
 extern UART_HandleTypeDef UART_PC_HANDLER;
-extern UART_HandleTypeDef huart1;
+// extern UART_HandleTypeDef huart1;
 static uint8_t uart3_rx_buf[64];
 static volatile bool uart3_rx_flag    = false;
 static volatile uint16_t uart3_rx_len = 0;
@@ -62,7 +62,6 @@ void TIM_Callback(TIM_HandleTypeDef* htim)
     // 发送 CAN 指令 (DJI)
     DJI_SendSetIqCommand(&hcan1, IQ_CMD_GROUP_1_4);
     DJI_SendSetIqCommand(&hcan1, IQ_CMD_GROUP_5_8);
-    
 }
 
 void Init(void* argument)
@@ -74,17 +73,17 @@ void Init(void* argument)
     CAN_Start(&hcan1, CAN_IT_RX_FIFO0_MSG_PENDING);
     DJI_Init(&dji_motor_driver, (DJI_Config_t){
                                     .auto_zero  = true,
-                                    .reverse    = true,
+                                    .reverse    = false,
                                     .motor_type = M3508_C620,
                                     .hcan       = &hcan1,
-                                    .id1        = 2,
+                                    .id1        = 3,
                                 });
     DJI_Init(&dji_gripper, (DJI_Config_t){
                                .auto_zero  = true,
                                .reverse    = true,
-                               .motor_type = M2006_C610,
+                               .motor_type = M3508_C620,
                                .hcan       = &hcan1,
-                               .id1        = 1,
+                               .id1        = 2,
                            });
     // 初始化达妙驱动 (DM-J10010L, CAN2)
     DM_CAN_FilterInit(&hcan2, 14);
@@ -94,87 +93,79 @@ void Init(void* argument)
     DM_Config_t config = {
         .hcan        = &hcan2,
         .id0         = 1,
-        .POS_MAX_RAD = 3.1416f,
-        .VEL_MAX_RAD = 40.0f * 3.1416f / 180.0f,
-        .T_MAX       = 2.0f,
-        .mode        = DM_MODE_VEL,
+        .POS_MAX_RAD = 12.5f,
+        .VEL_MAX_RAD = 25.0f,
+        .T_MAX       = 200.0f,
+        .mode        = DM_MODE_MIT,
         .motor_type  = DM_J10010L,
+        .reverse     = true,
     };
     DM_Init(&dm_motor_driver, &config);
     // 使能电机 (进入 MIT 模式)
-    DM_MIT_SendSetCmd(&dm_motor_driver, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f);
-    osDelay(100);
+    // DM_MIT_SendSetCmd(&dm_motor_driver, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f);
+    // osDelay(100);
 
-    // 2. 实例化电机接口
-    // 大臂 (Damiao J10010L)
-    static Arm::MotorCtrl m1(&dm_motor_driver, Arm::ControlMode::MIT);
+    // 为关节1 使用达妙电机, MIT 模式
     // MIT 参数: Kp, Kd, Ki, I_limit
-    m1.SetMitParams(30.0f, 1.0f, 5.0f, 2.0f);
+    // 初始参数: Kp=30, Kd=1.0, Ki=5.0 (积分项用于消除稳态误差), I_lim=2.0
+    static Arm::MotorCtrl m1(&dm_motor_driver);
+    m1.SetMitParams(150.0f, 3.5f, 0.0f, 2.0f);
     joint1_motor = &m1;
 
     // 小臂 (DJI)
-    static Arm::MotorCtrl m2(&dji_motor_driver, Arm::ControlMode::PositionPD_VelocityFF, (3591.0f / (187 * 100)) * (16384.0f / (20.0f * 0.3f)));
-    m2.SetCtrlParam((PD_Config_t){
-                        .Kp             = 8.0f,
-                        .Kd             = 0.2f,
-                        .abs_output_max = 2000.0f,
-                    },
-                    (MotorPID_Config_t){
-                        .Kp             = 45.0f,
-                        .Ki             = 0.1f,
-                        .Kd             = 5.0f,
-                        .abs_output_max = 5000.0f,
-                    });
+    // 转换 PD(Kp=8, Kd=0.2) + PID_Vel(Kp=45, Ki=0.1) -> MIT Impendance (Physical Nm)
+    // Torque Ratio = IQ / Nm
+    float ratio2 = (3591.0f / (187 * 100)) * (16384.0f / (20.0f * 0.3f));
+    // Old IQ Gains:
+    // Kp_iq = 45 * 8 = 360
+    // Kd_iq = 45 * (1 + 0.2) = 54
+    // Ki_iq = 0.1 * 8 = 0.8 (Integral of Pos Error)
+    // New Nm Gains = Gain_iq / ratio
+    static Arm::MotorCtrl m2(&dji_motor_driver, ratio2);
+    m2.SetMitParams(0.8f, 0.03f, 0.01f, 1.0f); // I_limit updated directly to Nm ~2000/ratio? No, keep conservative 5Nm
     joint2_motor = &m2;
     // 吸盘 (DJI)
 
-    static Arm::MotorCtrl m3(&dji_gripper, Arm::ControlMode::PositionPD_VelocityFF, 10000.0f / (10.0f * 0.18f));
-    m3.SetCtrlParam((PD_Config_t){
-                        .Kp             = 1.5f,
-                        .Kd             = 5.0f,
-                        .abs_output_max = 2000.0f,
-                    },
-                    (MotorPID_Config_t){
-                        .Kp             = 50.0f,
-                        .Ki             = 0.7f,
-                        .Kd             = 13.0f,
-                        .abs_output_max = 5000.0f,
-                    });
+    // 转换 PD(Kp=1.5, Kd=5) + PID_Vel(Kp=50, Ki=0.7) -> MIT Impendance
+    // Torque Ratio
+    float ratio3 = 16384.0f / (20.0f * 0.3f);
+    static Arm::MotorCtrl m3(&dji_gripper, ratio3);
+    m3.SetMitParams(0.8f, 0.03f, 0.01f, 2.0f); // Limit 2Nm
     gripper_motor = &m3;
 
     // 检测初始化是否成功
-    uint32_t start_tick = HAL_GetTick();
-    while (!joint1_motor->isConnected() || !joint2_motor->isConnected() || !gripper_motor->isConnected())
-    {
-        // 再发送一次命令？
-        if (HAL_GetTick() - start_tick > 6000)
-        {
-            Error_Handler(); // 超时处理
-        }
-        osDelay(10);
-    }
+    // uint32_t start_tick = HAL_GetTick();
+    // while (!joint1_motor->isConnected() || !joint2_motor->isConnected() || !gripper_motor->isConnected())
+    // {
+    //     // 再发送一次命令？
+    //     if (HAL_GetTick() - start_tick > 6000)
+    //     {
+    //         Error_Handler(); // 超时处理
+    //     }
+    //     osDelay(10);
+    // }
 
 
     // 3. 配置机械臂参数
     Arm::Controller::Config arm_cfg;
-    arm_cfg.l1          = 0.346f;  // 大臂长 0.3m
-    arm_cfg.l2          = 0.382f;  // 小臂长 0.25m
-    arm_cfg.l3          = 0.093f;  // 吸盘长 0.25m
-    arm_cfg.lc1         = 0.171f;  // 大臂质心
-    arm_cfg.lc2         = 0.176f;  // 小臂质心
-    arm_cfg.lc3         = 0.057f;  // 吸盘质心 (估算值)
-    arm_cfg.m1          = 1.2243f; // 大臂质量 kg
-    arm_cfg.m2          = 0.675f;  // 小臂质量 kg
-    arm_cfg.m3          = 0.6764f; // 吸盘质量
+    arm_cfg.l1          = 0.346f;   // 大臂长 0.3m
+    arm_cfg.l2          = 0.382f;   // 小臂长 0.25m
+    arm_cfg.l3          = 0.093f;   // 吸盘长 0.25m
+    arm_cfg.lc1         = 0.171f;   // 大臂质心
+    arm_cfg.lc2         = 0.23769f; // 小臂质心
+    arm_cfg.lc3         = 0.057f;   // 吸盘质心 (估算值)
+    arm_cfg.m1          = 1.2243f;  // 大臂质量 kg
+    arm_cfg.m2          = 0.909f;   // 小臂质量 kg
+    arm_cfg.m3          = 0.6764f;  // 吸盘质量
     arm_cfg.g           = 9.81f;
     arm_cfg.reduction_1 = 1.0f;                       // 大臂减速比 (例如 Unitree Go1 减速比)
     arm_cfg.reduction_2 = 100 * 187 * 1.5f / 3591.0f; // 小臂减速比 (例如 M3508 减速比)
-    arm_cfg.reduction_3 = 2.7f;                       // 吸盘关节减速比 (M2006)
+    arm_cfg.reduction_3 = 1.5f;                       // 吸盘关节减速比 (M2006)
 
     // 关节零位偏移 (Degree)
     // 假设上电时大臂垂直地面 (90度)，小臂水平 (0度)
     // 如果电机上电位置为 0，则 offset_1 = 90
-    arm_cfg.offset_1 = 180.0f;
+    arm_cfg.offset_1 = 0.0f;
     arm_cfg.offset_2 = -162.0f;
     arm_cfg.offset_3 = 90.0f;
 
@@ -305,14 +296,14 @@ void MotorCtrl(void* argument)
     // 等待系统稳定
     osDelay(4000);
 
-    if (robot_arm)
-    {
-        Arm_Action(robot_arm, action_init2get, action_init2get_len);
-        osDelay(5000);
-        Arm_Action(robot_arm, action_get2put, action_get2put_len);
-        osDelay(5000);
-        Arm_Action(robot_arm, action_put2get, action_put2get_len);
-    }
+    // if (robot_arm)
+    // {
+    //     Arm_Action(robot_arm, action_init2get, action_init2get_len);
+    //     osDelay(5000);
+    //     Arm_Action(robot_arm, action_get2put, action_get2put_len);
+    //     osDelay(5000);
+    //     Arm_Action(robot_arm, action_put2get, action_put2get_len);
+    // }
 
     // 播放完毕后，恢复串口控制
     // 开启空闲中断接收 (DMA)
@@ -339,6 +330,10 @@ void MotorCtrl(void* argument)
                 {
                     robot_arm->setJointTarget(q1, q2, q3);
                 }
+                if (vacuum_state)
+                    robot_arm->setPayload(0.6, 0.5);
+                else
+                    robot_arm->setPayload(0.0, 0.0);
                 HAL_GPIO_WritePin(GPIOE, GPIO_PIN_6, (GPIO_PinState)!vacuum_state);
             }
 

@@ -88,7 +88,7 @@ namespace Arm
         G1_ = (config_.m1 * config_.lc1 + config_.m2 * config_.l1 + config_.m3 * config_.l1) * config_.g;
 
         // 预计算负载重力系数 (假设负载在连杆末端)
-        G_payload_factor_3_ = config_.g * config_.l3; // 实际上负载在吸盘末端，这里假设 l3 是吸盘长度
+        G_payload_factor_3_ = config_.g * (config_.l3 + 0.175f); // 实际上负载在吸盘末端，这里假设 l3 是吸盘长度
         G_payload_factor_2_ = config_.g * config_.l2;
         G_payload_factor_1_ = config_.g * config_.l1;
     }
@@ -97,6 +97,7 @@ namespace Arm
     {
         // 重置软启动
         soft_start_scale_ = 0.0f;
+        last_connected_   = false;
 
         // 1. 先禁用电机，防止在上电初始位置未知的情况下进行 PID 计算
         joint1_.setEnable(false);
@@ -106,20 +107,32 @@ namespace Arm
         // 2. 更新反馈，获取当前物理位置
         // 调用 update() 在禁用状态下会执行：读取反馈 + 发送0力矩指令
         // 这比单纯 updateFeedback() 更安全，确保电机显式处于放松状态
-        joint1_.update();
-        joint2_.update();
-        joint3_.update();
+        joint1_.update(0.0f);
+        joint2_.update(0.0f);
+        joint3_.update(0.0f);
 
         // 记录上电时的电机初始位置 (度)
-        motor1_init_pos_ = joint1_.getAngle();
+        // Joint 1 (DM): 使用绝对值编码器，无需减去上电位置 (设为0)
+        motor1_init_pos_ = 0.0f;
+        // 双编码器的电机，如果转动的角度不超过360度，会出现上下电导致位置跳变
+        // 比如原本是 10 度 (0.17 rad)，跳变成 370 度 (6.45 rad)
+        // 这里加一个逻辑，如果上电后测到的位置大于1(rad)，说明电机多加了一圈，可以减去2pi (360度)
+        if (joint1_.getAngle() * DEG_TO_RAD < -1.0f)
+        {
+            motor1_init_pos_ = -360.0f;
+        }
+        // Joint 2/3 (DJI): 使用增量/多圈累计，需要记录上电位置作为相对基准
         motor2_init_pos_ = joint2_.getAngle();
         motor3_init_pos_ = joint3_.getAngle();
 
         // 读取初始位置作为目标位置，防止上电跳变
         // 注意: getAngle 返回度，这里存储在内部状态中
         // 考虑减速比: 关节角度 = ((电机角度 - 初始角度) / 减速比) + 偏移
-        // 初始时刻 (电机角度 - 初始角度) 为 0，所以初始关节角度 = 偏移
-        float q1_deg = config_.offset_1;
+
+        // J1 (Absolute): (Angle - 0)/Rat + Offset
+        float q1_deg = (joint1_.getAngle() / config_.reduction_1) + config_.offset_1;
+
+        // J2/J3 (Relative): (Angle - Init)/Rat + Offset (Where Angle==Init at t0) => 0/Rat + Offset = Offset
         float q2_deg = config_.offset_2;
         float q3_deg = config_.offset_3;
 
@@ -187,7 +200,45 @@ namespace Arm
 
     void Controller::update(float dt)
     {
-        // 0. 更新状态
+        // 0. 状态监测与重连处理 (Re-planning on Reconnection)
+        bool any_disconnected  = !joint1_.isConnected() || !joint2_.isConnected() || !joint3_.isConnected();
+        bool current_connected = !any_disconnected;
+
+        if (!last_connected_ && current_connected)
+        {
+            // 刚刚从断联状态完全恢复：执行重规划 (Re-plan)
+            // 将规划器的起点强制设置为当前的实际物理位置，终点设为用户最后设定的目标(或者保持原位)
+            // 这里选择保持原位(Hold Current Position)，等待上层重新下发指令，或者飞回原目标
+            // 工业上通常会暂停在原地 (Hold)。
+            // 但为了平滑继续任务，如果 target 没变，我们规划一条从 Current -> Target 的新轨迹。
+
+            float q1_real, q2_real, q3_real;
+            getJointAngles(q1_real, q2_real, q3_real);
+
+            // 强制覆盖规划器内部状态
+            traj_q1_.cur_pos = q1_real;
+            traj_q1_.cur_vel = 0.0f; // 假设恢复时速度为0 (或者读 feedback velocity)
+            traj_q1_.cur_acc = 0.0f;
+            current_q1_ref_  = q1_real;
+
+            traj_q2_.cur_pos = q2_real;
+            traj_q2_.cur_vel = 0.0f;
+            traj_q2_.cur_acc = 0.0f;
+            current_q2_ref_  = q2_real;
+
+            traj_q3_.cur_pos = q3_real;
+            traj_q3_.cur_vel = 0.0f;
+            traj_q3_.cur_acc = 0.0f;
+            current_q3_ref_  = q3_real;
+
+            // 重新规划回原来的目标 (traj_qX_.curve.xe 是原目标)
+            // 注意: 如果偏差太大，这个规划会生成平滑轨迹慢慢归位
+            traj_q1_.plan(q1_real, traj_q1_.curve.xe, 0, 0, config_.j1_max_vel, config_.j1_max_acc, config_.j1_max_jerk);
+            traj_q2_.plan(q2_real, traj_q2_.curve.xe, 0, 0, config_.j2_max_vel, config_.j2_max_acc, config_.j2_max_jerk);
+            traj_q3_.plan(q3_real, traj_q3_.curve.xe, 0, 0, config_.j3_max_vel, config_.j3_max_acc, config_.j3_max_jerk);
+        }
+        last_connected_ = current_connected;
+
         // 0.1 负载质量平滑过渡
         if (payload_ramp_rate_ > 0.0f)
         {
@@ -221,6 +272,12 @@ namespace Arm
         traj_q1_.step(dt, current_q1_ref_, q1_vel_ref);
         traj_q2_.step(dt, current_q2_ref_, q2_vel_ref);
         traj_q3_.step(dt, current_q3_ref_, q3_vel_ref);
+
+        // 动态积分控制: 运动过程中关闭积分项，静止时(到达目标)开启以消除稳态误差
+        joint1_.SetIntegralEnable(!traj_q1_.running);
+        joint2_.SetIntegralEnable(!traj_q2_.running);
+        joint3_.SetIntegralEnable(!traj_q3_.running);
+
         // 2. 计算重力补偿力矩 (需要弧度)
         float q1_real, q2_real, q3_real;
         getJointAngles(q1_real, q2_real, q3_real);
@@ -255,12 +312,12 @@ namespace Arm
                           tau2_g / config_.reduction_2);
         joint3_.setTarget((current_q3_ref_ - config_.offset_3) * config_.reduction_3 + motor3_init_pos_,
                           q3_vel_ref * config_.reduction_3,
-                          tau3_g / config_.reduction_3);
+                          0.0f); // 吸盘关节不做重力补偿 tau3_g / config_.reduction_3
 
         // 5. 执行底层控制更新
-        joint1_.update();
-        joint2_.update();
-        joint3_.update();
+        joint1_.update(dt);
+        joint2_.update(dt);
+        joint3_.update(dt);
     }
 
     void Controller::getEndEffectorPose(float& x, float& y, float& phi) const
