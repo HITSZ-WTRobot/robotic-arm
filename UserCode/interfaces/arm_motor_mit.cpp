@@ -136,27 +136,30 @@ namespace Arm
 
         if (!is_connected_)
         {
-            // 断联期间：仅输出前馈 (重力补偿)
-            float safe_ff = target_torque_ff_;
-
-            if (type_ == MotorType::DM)
+            // 断联期间：
+            // 对于非 Native MIT 电机 (DJI/Unitree)，MCU 需要实时反馈来计算力矩。
+            // 如果反馈丢失，控制回路失效，必须降级为只发送前馈 (重力补偿)。
+            if (type_ != MotorType::DM)
             {
-                DM_t* dm = static_cast<DM_t*>(driver_);
-                // Kp=0, Kd=0, 只发 T_ff
-                DM_MIT_SendSetCmd(dm, 0, 0, 0, 0, safe_ff);
-            }
-            else
-            {
+                float safe_ff = target_torque_ff_;
                 total_torque_ = safe_ff;
                 outputControl(total_torque_);
+                return;
             }
-            return;
+
+            // 对于 DM (Native MIT) 电机：
+            // 电机内部闭环，即便 MCU 收不到反馈 (RX断)，只要指令 (TX) 能到达，
+            // 电机仍能基于内部真实位置正确控制。
+            // 策略：继续发送正常目标 (Blind Transmit)，依靠电机内部 Watchdog 处理全断情况。
+            // 不 return，继续向下执行发送逻辑。
         }
 
         // --- 已连接 ---
 
         // 2. 计算积分项 (Integral Term)
         // 误差 = 目标位置 - 当前位置
+        // 注意：如果断联 (DM case)，current_angle_ 是旧值，pos_err 不准。
+        // 所以下方的积分累积必须 && is_connected_
         float pos_err         = target_angle_ - current_angle_;
         float torque_integral = 0.0f;
 

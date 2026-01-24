@@ -170,27 +170,114 @@ namespace Arm
 
     void Controller::setJointTarget(float q1, float q2, float q3, float* t1, float* t2, float* t3)
     {
-        // 高频控制优化:
-        // 使用当前"规划器"的内部状态(cur_pos, cur_vel, cur_acc)作为新轨迹的起点。
-        // 1. 保证了位置、速度、加速度的连续性 (C2连续)，避免速度跳变。
-        // 2. 避免了传感器噪声(特别是速度噪声)进入规划层，防止轨迹抖动。
-        // 3. 增加判断：如果目标位置未发生改变，则跳过规划，节省计算资源。
+        // 高频控制优化与多轴同步 (Multi-Axis Synchronization):
+        // 改正竞态条件：先使用 SCurve_Init 进行纯计算（"Dry Run"），
+        // 确定唯一的同步时间 Tmax 后，再调用 plan() 提交最终参数。
+        // 避免在计算过程中修改 pending_curve 导致中断伺服取到错误的中间状态。
 
+        float t_needed[3] = {0.0f, 0.0f, 0.0f};
+        bool move_req[3]  = {false, false, false};
+        SCurve_t temp_curve; // 临时变量用于计算时间，不影响实际运行
+
+        // 1. 预计算 (Pre-calculation) - 仅计算时间，不更新状态
+        // Joint 1
         if (fabsf(q1 - traj_q1_.curve.xe) > 1e-4f)
-            traj_q1_.plan(traj_q1_.cur_pos, q1, traj_q1_.cur_vel, traj_q1_.cur_acc, config_.j1_max_vel, config_.j1_max_acc, config_.j1_max_jerk);
+        {
+            SCurve_Init(&temp_curve, traj_q1_.cur_pos, q1, traj_q1_.cur_vel, traj_q1_.cur_acc, config_.j1_max_vel, config_.j1_max_acc, config_.j1_max_jerk);
+            t_needed[0] = temp_curve.total_time;
+            move_req[0] = true;
+        }
 
+        // Joint 2
         if (fabsf(q2 - traj_q2_.curve.xe) > 1e-4f)
-            traj_q2_.plan(traj_q2_.cur_pos, q2, traj_q2_.cur_vel, traj_q2_.cur_acc, config_.j2_max_vel, config_.j2_max_acc, config_.j2_max_jerk);
+        {
+            SCurve_Init(&temp_curve, traj_q2_.cur_pos, q2, traj_q2_.cur_vel, traj_q2_.cur_acc, config_.j2_max_vel, config_.j2_max_acc, config_.j2_max_jerk);
+            t_needed[1] = temp_curve.total_time;
+            move_req[1] = true;
+        }
 
+        // Joint 3
         if (fabsf(q3 - traj_q3_.curve.xe) > 1e-4f)
-            traj_q3_.plan(traj_q3_.cur_pos, q3, traj_q3_.cur_vel, traj_q3_.cur_acc, config_.j3_max_vel, config_.j3_max_acc, config_.j3_max_jerk);
+        {
+            SCurve_Init(&temp_curve, traj_q3_.cur_pos, q3, traj_q3_.cur_vel, traj_q3_.cur_acc, config_.j3_max_vel, config_.j3_max_acc, config_.j3_max_jerk);
+            t_needed[2] = temp_curve.total_time;
+            move_req[2] = true;
+        }
+
+        // 2. 寻找最大同步时间 (Sync Time)
+        float max_time = t_needed[0];
+        if (t_needed[1] > max_time)
+            max_time = t_needed[1];
+        if (t_needed[2] > max_time)
+            max_time = t_needed[2];
+
+        // 3. 统一规划并提交 (Commit Plan)
+        // 此时已确定每个轴的最终参数，每个轴只调用一次 plan()
+
+        float threshold = max_time - 0.002f;
+
+        // Joint 1 Commit
+        if (move_req[0])
+        {
+            if (max_time > 0.001f && t_needed[0] < threshold)
+            {
+                // 需要减速
+                float alpha  = t_needed[0] / max_time;
+                float alpha2 = alpha * alpha;
+                float alpha3 = alpha2 * alpha;
+                traj_q1_.plan(traj_q1_.cur_pos, q1, traj_q1_.cur_vel, traj_q1_.cur_acc,
+                              config_.j1_max_vel * alpha, config_.j1_max_acc * alpha2, config_.j1_max_jerk * alpha3);
+            }
+            else
+            {
+                // 原速全速
+                traj_q1_.plan(traj_q1_.cur_pos, q1, traj_q1_.cur_vel, traj_q1_.cur_acc,
+                              config_.j1_max_vel, config_.j1_max_acc, config_.j1_max_jerk);
+            }
+        }
+
+        // Joint 2 Commit
+        if (move_req[1])
+        {
+            if (max_time > 0.001f && t_needed[1] < threshold)
+            {
+                float alpha  = t_needed[1] / max_time;
+                float alpha2 = alpha * alpha;
+                float alpha3 = alpha2 * alpha;
+                traj_q2_.plan(traj_q2_.cur_pos, q2, traj_q2_.cur_vel, traj_q2_.cur_acc,
+                              config_.j2_max_vel * alpha, config_.j2_max_acc * alpha2, config_.j2_max_jerk * alpha3);
+            }
+            else
+            {
+                traj_q2_.plan(traj_q2_.cur_pos, q2, traj_q2_.cur_vel, traj_q2_.cur_acc,
+                              config_.j2_max_vel, config_.j2_max_acc, config_.j2_max_jerk);
+            }
+        }
+
+        // Joint 3 Commit
+        if (move_req[2])
+        {
+            if (max_time > 0.001f && t_needed[2] < threshold)
+            {
+                float alpha  = t_needed[2] / max_time;
+                float alpha2 = alpha * alpha;
+                float alpha3 = alpha2 * alpha;
+                traj_q3_.plan(traj_q3_.cur_pos, q3, traj_q3_.cur_vel, traj_q3_.cur_acc,
+                              config_.j3_max_vel * alpha, config_.j3_max_acc * alpha2, config_.j3_max_jerk * alpha3);
+            }
+            else
+            {
+                traj_q3_.plan(traj_q3_.cur_pos, q3, traj_q3_.cur_vel, traj_q3_.cur_acc,
+                              config_.j3_max_vel, config_.j3_max_acc, config_.j3_max_jerk);
+            }
+        }
 
         if (t1)
-            *t1 = traj_q1_.curve.total_time;
+            *t1 = move_req[0] ? traj_q1_.pending_curve.total_time : 0.0f;
         if (t2)
-            *t2 = traj_q2_.curve.total_time;
+            *t2 = move_req[1] ? traj_q2_.pending_curve.total_time : 0.0f;
         if (t3)
-            *t3 = traj_q3_.curve.total_time;
+            *t3 = move_req[2] ? traj_q3_.pending_curve.total_time : 0.0f;
     }
 
     bool Controller::isArrived() const
@@ -231,11 +318,11 @@ namespace Arm
             traj_q3_.cur_acc = 0.0f;
             current_q3_ref_  = q3_real;
 
-            // 重新规划回原来的目标 (traj_qX_.curve.xe 是原目标)
-            // 注意: 如果偏差太大，这个规划会生成平滑轨迹慢慢归位
-            traj_q1_.plan(q1_real, traj_q1_.curve.xe, 0, 0, config_.j1_max_vel, config_.j1_max_acc, config_.j1_max_jerk);
-            traj_q2_.plan(q2_real, traj_q2_.curve.xe, 0, 0, config_.j2_max_vel, config_.j2_max_acc, config_.j2_max_jerk);
-            traj_q3_.plan(q3_real, traj_q3_.curve.xe, 0, 0, config_.j3_max_vel, config_.j3_max_acc, config_.j3_max_jerk);
+            // 重新规划: 停在原地 (Hold current position)
+            // 等待上位机下发新的指令，而不是自动飞回断联前的目标，防止碰撞风险。
+            traj_q1_.plan(q1_real, q1_real, 0, 0, config_.j1_max_vel, config_.j1_max_acc, config_.j1_max_jerk);
+            traj_q2_.plan(q2_real, q2_real, 0, 0, config_.j2_max_vel, config_.j2_max_acc, config_.j2_max_jerk);
+            traj_q3_.plan(q3_real, q3_real, 0, 0, config_.j3_max_vel, config_.j3_max_acc, config_.j3_max_jerk);
         }
         last_connected_ = current_connected;
 
