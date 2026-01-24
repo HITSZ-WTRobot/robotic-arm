@@ -68,6 +68,13 @@ const osThreadAttr_t motorctrl_attributes = {
   .stack_size = 1024 * 4,
   .priority = (osPriority_t) osPriorityHigh,
 };
+/* Definitions for statusFeedback */
+osThreadId_t statusFeedbackHandle;
+const osThreadAttr_t statusFeedback_attributes = {
+  .name = "statusFeedback",
+  .stack_size = 512 * 4,
+  .priority = (osPriority_t) osPriorityBelowNormal6,
+};
 
 /* Private function prototypes -----------------------------------------------*/
 /* USER CODE BEGIN FunctionPrototypes */
@@ -77,6 +84,7 @@ const osThreadAttr_t motorctrl_attributes = {
 void StartDefaultTask(void *argument);
 extern void Init(void *argument);
 extern void MotorCtrl(void *argument);
+extern void StatusFeedbackTask(void *argument);
 
 void MX_FREERTOS_Init(void); /* (MISRA C 2004 rule 8.1) */
 
@@ -115,6 +123,9 @@ void MX_FREERTOS_Init(void) {
 
   /* creation of motorctrl */
   motorctrlHandle = osThreadNew(MotorCtrl, NULL, &motorctrl_attributes);
+
+  /* creation of statusFeedback */
+  statusFeedbackHandle = osThreadNew(StatusFeedbackTask, NULL, &statusFeedback_attributes);
 
   /* USER CODE BEGIN RTOS_THREADS */
     /* add threads, ... */

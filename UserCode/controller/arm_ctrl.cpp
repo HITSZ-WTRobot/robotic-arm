@@ -383,23 +383,43 @@ namespace Arm
         tau2_g *= soft_start_scale_;
         tau3_g *= soft_start_scale_;
 
+        // 2.5 计算并应用回程差补偿 (Backlash Compensation)
+        // 策略: 重力主导 (Gravity Dominant)
+        // 机械臂在非垂直状态下，齿轮间隙通常被重力"压死"在某一侧。
+        // 此时即使速度换向，只要重力矩方向没变，齿轮接触面就不会变，不应改变补偿值。
+        // 只有当 (1) 重力矩极小 (垂直状态) 或 (2) 高加速度突破重力时，才由速度/加速度决定方向。
+
+        float torque_threshold = 0.3f; // Nm, 重力不明显时的阈值
+
+        // Helper Lambda
+        auto get_comp_dir = [&](float torque, float vel) -> float
+        {
+            if (torque > torque_threshold)
+                return 1.0f; // 重力压在正向
+            if (torque < -torque_threshold)
+                return -1.0f; // 重力压在负向
+            // 重力很小（垂直平衡点），由速度决定（摩擦力主导）
+            return 0.0f;
+        };
+
+        float q1_target = current_q1_ref_ + get_comp_dir(tau1_g, q1_vel_ref) * config_.backlash_1 * 0.5f;
+        float q2_target = current_q2_ref_ + get_comp_dir(tau2_g, q2_vel_ref) * config_.backlash_2 * 0.5f;
+        float q3_target = current_q3_ref_ + get_comp_dir(tau3_g, q3_vel_ref) * config_.backlash_3 * 0.5f;
+
         // 3. 更新关节电机目标 (位置 + 前馈速度 + 前馈力矩)
         // setTarget 接受度数
         // 电机目标角度 = (关节目标角度 - 偏移) * 减速比 + 初始角度
-        // 电机前馈速度 = 关节前馈速度 * 减速比
-        // 电机前馈力矩 = 关节前馈力矩 / 减速比
-        joint1_.setTarget((current_q1_ref_ - config_.offset_1) * config_.reduction_1 + motor1_init_pos_,
+        joint1_.setTarget((q1_target - config_.offset_1) * config_.reduction_1 + motor1_init_pos_,
                           q1_vel_ref * config_.reduction_1,
                           tau1_g / config_.reduction_1);
-        // joint1_.setTarget((current_q1_ref_ - config_.offset_1) * config_.reduction_1 + motor1_init_pos_,
-        //                   q1_vel_ref * config_.reduction_1,
-        //                   0);
-        joint2_.setTarget((current_q2_ref_ - config_.offset_2) * config_.reduction_2 + motor2_init_pos_,
+
+        joint2_.setTarget((q2_target - config_.offset_2) * config_.reduction_2 + motor2_init_pos_,
                           q2_vel_ref * config_.reduction_2,
                           tau2_g / config_.reduction_2);
-        joint3_.setTarget((current_q3_ref_ - config_.offset_3) * config_.reduction_3 + motor3_init_pos_,
+
+        joint3_.setTarget((q3_target - config_.offset_3) * config_.reduction_3 + motor3_init_pos_,
                           q3_vel_ref * config_.reduction_3,
-                          0.0f); // 吸盘关节不做重力补偿 tau3_g / config_.reduction_3
+                          tau3_g / config_.reduction_3); // 吸盘关节不做重力补偿
 
         // 5. 执行底层控制更新
         joint1_.update(dt);

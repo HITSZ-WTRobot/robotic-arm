@@ -1,45 +1,42 @@
 
 
-GraphedExpression="((dm_motor_driver).feedback).T", Color=#e56a6f, Show=0
-GraphedExpression="(m2).target_angle_", Color=#35792b
-GraphedExpression="(m2).current_angle_", Color=#769dda
-GraphedExpression="(m2).iq_float_", Color=#b14f0d
-GraphedExpression="(dji_motor_driver).feedback_count", DisplayFormat=DISPLAY_FORMAT_DEC, Color=#b3c38e
-OpenDocument="DJI.c", FilePath="/Users/chillyhigh/Projects/STM32/robotic-arm/UserCode/drivers/DJI.c", Line=143
-OpenDocument="serial_arm_ctrl_demo.cpp", FilePath="/Users/chillyhigh/Projects/STM32/robotic-arm/UserCode/app/serial_arm_ctrl_demo.cpp", Line=8
-OpenDocument="tasks.c", FilePath="/Users/chillyhigh/Projects/STM32/robotic-arm/Middlewares/Third_Party/FreeRTOS/Source/tasks.c", Line=3653
+GraphedExpression="(m1).rx_timeout_", Color=#e56a6f, Show=0
+GraphedExpression="(m2).rx_timeout_", Color=#35792b, Show=0
+GraphedExpression="(m3).rx_timeout_", Color=#769dda
+GraphedExpression="(m1).target_velocity_", Color=#b14f0d
+GraphedExpression="(m2).target_velocity_", Color=#b3c38e
+OpenDocument="stm32f4xx_it.c", FilePath="/Users/chillyhigh/Projects/STM32/robotic-arm/Core/Src/stm32f4xx_it.c", Line=83
+OpenDocument="DJI.c", FilePath="/Users/chillyhigh/Projects/STM32/robotic-arm/UserCode/drivers/DJI.c", Line=26
+OpenDocument="serial_arm_ctrl_demo.cpp", FilePath="/Users/chillyhigh/Projects/STM32/robotic-arm/UserCode/app/serial_arm_ctrl_demo.cpp", Line=38
+OpenDocument="tasks.c", FilePath="/Users/chillyhigh/Projects/STM32/robotic-arm/Middlewares/Third_Party/FreeRTOS/Source/tasks.c", Line=3420
 OpenDocument="can_driver.c", FilePath="/Users/chillyhigh/Projects/STM32/robotic-arm/UserCode/bsp/can_driver.c", Line=57
 OpenDocument="DM.c", FilePath="/Users/chillyhigh/Projects/STM32/robotic-arm/UserCode/drivers/DM.c", Line=242
 OpenDocument="DM.h", FilePath="/Users/chillyhigh/Projects/STM32/robotic-arm/UserCode/drivers/DM.h", Line=35
 OpenDocument="main.c", FilePath="/Users/chillyhigh/Projects/STM32/robotic-arm/Core/Src/main.c", Line=61
 OpenDocument="arm_motor_mit.cpp", FilePath="/Users/chillyhigh/Projects/STM32/robotic-arm/UserCode/interfaces/arm_motor_mit.cpp", Line=116
 OpenToolbar="Debug", Floating=0, x=0, y=0
-OpenWindow="Call Stack", DockArea=RIGHT, x=0, y=1, w=300, h=166, FilterBarShown=0, TotalValueBarShown=0, ToolBarShown=0
-OpenWindow="Registers 1", DockArea=RIGHT, x=0, y=2, w=300, h=243, FilterBarShown=0, TotalValueBarShown=0, ToolBarShown=0, FilteredItems=[], RefreshRate=1
-OpenWindow="Source Files", DockArea=LEFT, x=0, y=0, w=391, h=172, FilterBarShown=0, TotalValueBarShown=0, ToolBarShown=0
-OpenWindow="Disassembly", DockArea=RIGHT, x=0, y=0, w=300, h=221, FilterBarShown=0, TotalValueBarShown=0, ToolBarShown=0
+OpenWindow="Call Stack", DockArea=RIGHT, x=0, y=1, w=300, h=172, FilterBarShown=0, TotalValueBarShown=0, ToolBarShown=0
+OpenWindow="Registers 1", DockArea=RIGHT, x=0, y=2, w=300, h=239, FilterBarShown=0, TotalValueBarShown=0, ToolBarShown=0, FilteredItems=[], RefreshRate=1
+OpenWindow="Source Files", DockArea=LEFT, x=0, y=0, w=537, h=176, FilterBarShown=0, TotalValueBarShown=0, ToolBarShown=0
+OpenWindow="Disassembly", DockArea=RIGHT, x=0, y=0, w=300, h=219, FilterBarShown=0, TotalValueBarShown=0, ToolBarShown=0
 OpenWindow="Memory 1", DockArea=BOTTOM, x=2, y=0, w=536, h=215, FilterBarShown=0, TotalValueBarShown=0, ToolBarShown=0, EditorAddress=0x0
-OpenWindow="Watched Data 1", DockArea=LEFT, x=0, y=1, w=391, h=348, FilterBarShown=0, TotalValueBarShown=0, ToolBarShown=0
-OpenWindow="Functions", DockArea=LEFT, x=0, y=2, w=391, h=110, FilterBarShown=0, TotalValueBarShown=0, ToolBarShown=0
+OpenWindow="Watched Data 1", DockArea=LEFT, x=0, y=1, w=537, h=330, FilterBarShown=0, TotalValueBarShown=0, ToolBarShown=0
+OpenWindow="Functions", DockArea=LEFT, x=0, y=2, w=537, h=124, FilterBarShown=0, TotalValueBarShown=0, ToolBarShown=0
 OpenWindow="Data Sampling", DockArea=BOTTOM, x=0, y=0, w=388, h=215, FilterBarShown=0, TotalValueBarShown=0, ToolBarShown=0, VisibleTab=0, UniformSampleSpacing=0
-OpenWindow="Timeline", DockArea=FLOATING, x=282, y=154, w=1188, h=783, FilterBarShown=0, TotalValueBarShown=0, ToolBarShown=1, DataPaneShown=1, PowerPaneShown=0, CodePaneShown=0, PinCursor="Cursor Movable", TimePerDiv="500 ms / Div", TimeStampFormat="Time", DataGraphDrawAsPoints=0, DataGraphLegendShown=1, DataGraphUniformSampleSpacing=0, DataGraphLegendPosition="857;0", DataGraphShowNamesAtCursor=0, PowerGraphDrawAsPoints=0, PowerGraphLegendShown=0, PowerGraphAvgFilterTime=Off, PowerGraphAvgFilterLen=Off, PowerGraphUniformSampleSpacing=0, PowerGraphLegendPosition="572;0", CodeGraphLegendShown=0, CodeGraphLegendPosition="592;0"
+OpenWindow="Timeline", DockArea=FLOATING, x=455, y=273, w=941, h=623, FilterBarShown=0, TotalValueBarShown=0, ToolBarShown=1, DataPaneShown=1, PowerPaneShown=0, CodePaneShown=0, PinCursor="Cursor Movable", TimePerDiv="5 s / Div", TimeStampFormat="Time", DataGraphDrawAsPoints=0, DataGraphLegendShown=1, DataGraphUniformSampleSpacing=0, DataGraphLegendPosition="595;0", DataGraphShowNamesAtCursor=1, PowerGraphDrawAsPoints=0, PowerGraphLegendShown=0, PowerGraphAvgFilterTime=Off, PowerGraphAvgFilterLen=Off, PowerGraphUniformSampleSpacing=0, PowerGraphLegendPosition="740;0", CodeGraphLegendShown=0, CodeGraphLegendPosition="760;0"
 OpenWindow="Console", DockArea=BOTTOM, x=1, y=0, w=544, h=215, FilterBarShown=0, TotalValueBarShown=0, ToolBarShown=0
 SmartViewPlugin="", Page="", Toolbar="Hidden", Window="SmartView 1"
 TableHeader="Functions", SortCol="Name", SortOrder="ASCENDING", VisibleCols=["Name";"Address";"Size";"#Insts";"Class";"Source"], ColWidths=[1236;100;100;100;110;602]
 TableHeader="Call Stack", SortCol="Function", SortOrder="ASCENDING", VisibleCols=["Function";"Stack Frame";"Source";"PC";"Return Address";"Stack Used"], ColWidths=[107;105;200;100;112;100]
 TableHeader="Source Files", SortCol="File", SortOrder="ASCENDING", VisibleCols=["File";"Status";"Size";"#Insts";"Path"], ColWidths=[203;100;100;100;1100]
-TableHeader="Data Sampling Table", SortCol="None", SortOrder="ASCENDING", VisibleCols=["Index";"Time";" ((dm_motor_driver).feedback).T";" (m2).target_angle_";" (m2).current_angle_";" (m2).iq_float_";" (dji_motor_driver).feedback_count"], ColWidths=[100;100;100;100;100;100;100]
-TableHeader="Data Sampling Setup", SortCol="Expression", SortOrder="ASCENDING", VisibleCols=["Expression";"Type";"Value";"Min";"Max";"Average";"# Changes";"Min. Change";"Max. Change"], ColWidths=[128;105;100;100;100;100;100;100;100]
+TableHeader="Data Sampling Table", SortCol="None", SortOrder="ASCENDING", VisibleCols=["Index";"Time";" (m1).rx_timeout_";" (m2).rx_timeout_";" (m3).rx_timeout_";" (m1).target_velocity_";" (m2).target_velocity_"], ColWidths=[100;100;100;100;100;100;100]
+TableHeader="Data Sampling Setup", SortCol="Expression", SortOrder="ASCENDING", VisibleCols=["Expression";"Type";"Value";"Min";"Max";"Average";"# Changes";"Min. Change";"Max. Change"], ColWidths=[128;100;100;100;105;112;100;112;105]
 TableHeader="Power Sampling", SortCol="None", SortOrder="ASCENDING", VisibleCols=["Index";"Time";"Ch 0"], ColWidths=[100;100;100]
 TableHeader="Task List", SortCol="None", SortOrder="ASCENDING", VisibleCols=["Name";"Run Count";"Priority";"Status";"Timeout";"Stack Info";"ID";"Mutex Count";"Notified Value";"Notify State"], ColWidths=[110;110;110;110;110;110;110;110;110;110]
 TableHeader="Registers 1", SortCol="Name", SortOrder="ASCENDING", VisibleCols=["Name";"Value";"Description"], ColWidths=[100;105;224]
-TableHeader="Watched Data 1", SortCol="Expression", SortOrder="ASCENDING", VisibleCols=["Expression";"Value";"Location";"Refresh";"Access"], ColWidths=[162;163;100;100;100]
+TableHeader="Watched Data 1", SortCol="Expression", SortOrder="ASCENDING", VisibleCols=["Expression";"Value";"Location";"Refresh";"Access"], ColWidths=[162;163;100;112;100]
 TableHeader="RegisterSelectionDialog", SortCol="None", SortOrder="ASCENDING", VisibleCols=[], ColWidths=[]
 TableHeader="TargetExceptionDialog", SortCol="Name", SortOrder="ASCENDING", VisibleCols=["Name";"Value";"Address";"Description"], ColWidths=[200;100;100;343]
-WatchedExpression="m2", RefreshRate=5, Window=Watched Data 1
-WatchedExpression="dm_motor1", RefreshRate=5, Window=Watched Data 1
-WatchedExpression="m3", RefreshRate=5, Window=Watched Data 1
-WatchedExpression="dm_motor1", RefreshRate=5, Window=Watched Data 1
 WatchedExpression="m1", RefreshRate=5, Window=Watched Data 1
-WatchedExpression="dm_motor_driver", RefreshRate=5, Window=Watched Data 1
-WatchedExpression="dji_motor_driver", RefreshRate=5, Window=Watched Data 1
+WatchedExpression="m2", Window=Watched Data 1
+WatchedExpression="m3", Window=Watched Data 1

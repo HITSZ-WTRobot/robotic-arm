@@ -11,7 +11,7 @@
 #include "stm32f407xx.h"
 #include "stm32f4xx_hal_gpio.h"
 #include "stm32f4xx_hal_uart.h"
-
+#include "trajectory.h"
 
 #define UART_PC_HANDLER huart1
 
@@ -20,6 +20,8 @@ extern UART_HandleTypeDef UART_PC_HANDLER;
 static uint8_t uart3_rx_buf[64];
 static volatile bool uart3_rx_flag    = false;
 static volatile uint16_t uart3_rx_len = 0;
+static volatile bool is_animating     = false;
+static volatile int requested_action  = -1; // -1: none, >=0: action id
 
 
 DJI_t dji_motor_driver;
@@ -35,6 +37,14 @@ Arm::MotorCtrl* gripper_motor = NULL;
 
 // 控制器实例
 Arm::Controller* robot_arm = NULL;
+
+// 定义在全局，方便调试器观测
+static const float RATIO_2 = (3591.0f / (187 * 100)) * (16384.0f / (20.0f * 0.3f));
+static const float RATIO_3 = 16384.0f / (20.0f * 0.3f);
+
+static Arm::MotorCtrl m1(&dm_motor_driver);
+static Arm::MotorCtrl m2(&dji_motor_driver, RATIO_2);
+static Arm::MotorCtrl m3(&dji_gripper, RATIO_3);
 
 #ifdef __cplusplus
 extern "C" {
@@ -64,6 +74,85 @@ void TIM_Callback(TIM_HandleTypeDef* htim)
     DJI_SendSetIqCommand(&hcan1, IQ_CMD_GROUP_5_8);
 }
 
+void StatusFeedbackTask(void* argument)
+{
+    char tx_buf[64];
+    // pressure_sensor is global
+
+    osDelay(4000);
+
+    // 开启空闲中断接收 (DMA)
+    HAL_UARTEx_ReceiveToIdle_DMA(&UART_PC_HANDLER, uart3_rx_buf, sizeof(uart3_rx_buf));
+
+    for (;;)
+    {
+        // 1. 处理接收到的数据
+        if (uart3_rx_flag)
+        {
+            // 确保字符串结束
+            if (uart3_rx_len < sizeof(uart3_rx_buf))
+                uart3_rx_buf[uart3_rx_len] = 0;
+            else
+                uart3_rx_buf[sizeof(uart3_rx_buf) - 1] = 0;
+
+            float cmd_q1, cmd_q2, cmd_q3;
+            int vacuum_state  = 0;
+            int payload_state = 0;
+            int action_id     = -1;
+            int args_count    = 0;
+
+            if (sscanf((char*)uart3_rx_buf, "ACT, %d", &action_id) == 1)
+            {
+                if (!is_animating)
+                {
+                    requested_action = action_id;
+                }
+            }
+            // 解析 CSV: 45.5, 30.0, 0.0, 1, 1 (可选 payload)
+            // 注意: sscanf 会自动跳过空白字符，但逗号需要显式匹配
+            else if ((args_count = sscanf((char*)uart3_rx_buf, "%f, %f, %f, %d, %d", &cmd_q1, &cmd_q2, &cmd_q3, &vacuum_state, &payload_state)) >= 4)
+            {
+                if (robot_arm)
+                {
+                    // 若不在播放动画，则允许关节控制
+                    if (!is_animating)
+                    {
+                        robot_arm->setJointTarget(cmd_q1, cmd_q2, cmd_q3);
+                    }
+
+                    // 如果只收到4个参数，默认payload跟随vacuum (兼容旧协议)
+                    if (args_count == 4)
+                        payload_state = vacuum_state;
+
+                    if (payload_state)
+                        robot_arm->setPayload(0.6, 0.5);
+                    else
+                        robot_arm->setPayload(0.0, 0.0);
+                    HAL_GPIO_WritePin(GPIOA, GPIO_PIN_6, (GPIO_PinState)!vacuum_state);
+                }
+            }
+
+            uart3_rx_flag = false;
+            // 重新开启接收
+            HAL_UARTEx_ReceiveToIdle_DMA(&UART_PC_HANDLER, uart3_rx_buf, sizeof(uart3_rx_buf));
+        }
+
+        if (robot_arm)
+        {
+            float cur_q1, cur_q2, cur_q3;
+            robot_arm->getJointAngles(cur_q1, cur_q2, cur_q3);
+
+            // float pressure_kpa = pressure_sensor.readPressure() / 1000.0f;
+            float pressure_kpa = 100.0f;
+            int len            = sprintf(tx_buf, "%.2f, %.2f, %.2f, %.2f, %d\n", cur_q1, cur_q2, cur_q3, pressure_kpa, is_animating ? 1 : 0);
+
+            // 使用 UART_PC_HANDLER 发送，注意这里不需要互斥，因为只有本任务在使用 TX
+            HAL_UART_Transmit_DMA(&UART_PC_HANDLER, (uint8_t*)tx_buf, len);
+        }
+        osDelay(50); // 20Hz 刷新率
+    }
+}
+
 void Init(void* argument)
 {
 
@@ -76,7 +165,7 @@ void Init(void* argument)
                                     .reverse    = false,
                                     .motor_type = M3508_C620,
                                     .hcan       = &hcan1,
-                                    .id1        = 3,
+                                    .id1        = 1,
                                 });
     DJI_Init(&dji_gripper, (DJI_Config_t){
                                .auto_zero  = true,
@@ -108,29 +197,29 @@ void Init(void* argument)
     // 为关节1 使用达妙电机, MIT 模式
     // MIT 参数: Kp, Kd, Ki, I_limit
     // 初始参数: Kp=30, Kd=1.0, Ki=5.0 (积分项用于消除稳态误差), I_lim=2.0
-    static Arm::MotorCtrl m1(&dm_motor_driver);
+    // static Arm::MotorCtrl m1(&dm_motor_driver); // Moved to global
     m1.SetMitParams(150.0f, 3.5f, 0.0f, 2.0f);
     joint1_motor = &m1;
 
     // 小臂 (DJI)
     // 转换 PD(Kp=8, Kd=0.2) + PID_Vel(Kp=45, Ki=0.1) -> MIT Impendance (Physical Nm)
     // Torque Ratio = IQ / Nm
-    float ratio2 = (3591.0f / (187 * 100)) * (16384.0f / (20.0f * 0.3f));
+    // float ratio2 = (3591.0f / (187 * 100)) * (16384.0f / (20.0f * 0.3f)); // Moved to global
     // Old IQ Gains:
     // Kp_iq = 45 * 8 = 360
     // Kd_iq = 45 * (1 + 0.2) = 54
     // Ki_iq = 0.1 * 8 = 0.8 (Integral of Pos Error)
     // New Nm Gains = Gain_iq / ratio
-    static Arm::MotorCtrl m2(&dji_motor_driver, ratio2);
+    // static Arm::MotorCtrl m2(&dji_motor_driver, RATIO_2); // Moved to global
     m2.SetMitParams(0.8f, 0.03f, 0.01f, 1.0f); // I_limit updated directly to Nm ~2000/ratio? No, keep conservative 5Nm
     joint2_motor = &m2;
     // 吸盘 (DJI)
 
     // 转换 PD(Kp=1.5, Kd=5) + PID_Vel(Kp=50, Ki=0.7) -> MIT Impendance
     // Torque Ratio
-    float ratio3 = 16384.0f / (20.0f * 0.3f);
-    static Arm::MotorCtrl m3(&dji_gripper, ratio3);
-    m3.SetMitParams(0.8f, 0.03f, 0.01f, 2.0f); // Limit 2Nm
+    // float ratio3 = 16384.0f / (20.0f * 0.3f); // Moved to global
+    // static Arm::MotorCtrl m3(&dji_gripper, RATIO_3); // Moved to global
+    m3.SetMitParams(0.6f, 0.03f, 0.01f, 2.0f); // Limit 2Nm
     gripper_motor = &m3;
 
     // 检测初始化是否成功
@@ -166,18 +255,23 @@ void Init(void* argument)
     // 假设上电时大臂垂直地面 (90度)，小臂水平 (0度)
     // 如果电机上电位置为 0，则 offset_1 = 90
     arm_cfg.offset_1 = 0.0f;
-    arm_cfg.offset_2 = -162.0f;
+    arm_cfg.offset_2 = -164.0f;
     arm_cfg.offset_3 = 90.0f;
 
+    // 回程差 (Backlash) 补偿 (Degree)
+    arm_cfg.backlash_1 = 0.0f; // 直驱电机通常无间隙
+    arm_cfg.backlash_2 = 6.0f; // 减速组会有一定间隙
+    arm_cfg.backlash_3 = 3.0f;
+
     // 运动学限制 (Degree)
-    arm_cfg.j1_max_vel  = 360.0f;
-    arm_cfg.j1_max_acc  = 10.0f;
+    arm_cfg.j1_max_vel  = 50.0f;
+    arm_cfg.j1_max_acc  = 50.0f;
     arm_cfg.j1_max_jerk = 500.0f;
-    arm_cfg.j2_max_vel  = 50.0f;
+    arm_cfg.j2_max_vel  = 20.0f;
     arm_cfg.j2_max_acc  = 120.0f;
     arm_cfg.j2_max_jerk = 500.0f;
     arm_cfg.j3_max_vel  = 3600.0f;
-    arm_cfg.j3_max_acc  = 360.0f;
+    arm_cfg.j3_max_acc  = 30.0f;
     arm_cfg.j3_max_jerk = 500.0f;
 
     // 4. 实例化并初始化控制器
@@ -194,168 +288,42 @@ void Init(void* argument)
 }
 
 
-// --- 轨迹数据 ---
-// Process1
-static const float action_init2get[][3] = {
-    {0.000000f, 2.827433f, -1.570796f},
-    {0.149272f, 2.708163f, -1.535406f},
-    {0.210992f, 2.638466f, -1.462390f},
-    {0.351969f, 2.525328f, -1.391390f},
-    {0.490123f, 2.409258f, -1.329995f},
-    {0.627619f, 2.293327f, -1.273215f},
-    {0.763559f, 2.180060f, -1.204847f},
-    {0.893702f, 2.058548f, -1.138770f},
-    {1.026454f, 1.936687f, -1.076546f},
-    {1.157744f, 1.818645f, -1.020221f},
-    {1.284473f, 1.693275f, -0.969958f},
-    {1.400403f, 1.548976f, -0.882830f},
-    {1.595668f, 1.373530f, -0.773428f},
-    {1.661732f, 1.314833f, -0.652823f},
-    {1.787060f, 1.188164f, -0.564372f},
-    {1.892786f, 1.034662f, -0.435481f},
-    {2.089038f, 0.888197f, -0.381912f},
-    {2.219644f, 0.797044f, -0.314549f},
-    {2.381298f, 0.612779f, -0.250119f},
-    {2.552461f, 0.489465f, -0.115213f},
-    {2.624715f, 0.485858f, 0.000000f},
-    {2.766650f, 0.305219f, 0.000000f},
-    {2.938274f, 0.160281f, 0.000000f},
-    {3.141593f, -0.000000f, 0.000000f}};
-static const int action_init2get_len = sizeof(action_init2get) / sizeof(action_init2get[0]);
-// Process2
-static const float action_get2put[][3] = {
-    {3.141593f, -0.000000f, -1.570796f},
-    {3.124625f, -0.050922f, -1.502906f},
-    {3.099226f, -0.152810f, -1.362512f},
-    {3.067651f, -0.263890f, -1.236930f},
-    {3.020095f, -0.351481f, -1.100174f},
-    {2.988420f, -0.449109f, -0.961344f},
-    {2.973837f, -0.549597f, -0.816580f},
-    {2.962577f, -0.602960f, -0.747905f},
-    {2.957564f, -0.764645f, -0.551440f},
-    {2.903414f, -0.863512f, -0.428247f},
-    {2.812258f, -0.989461f, -0.249167f},
-    {2.792865f, -1.145443f, -0.088419f},
-    {2.771893f, -1.191714f, -0.019187f},
-    {2.670001f, -1.321939f, 0.084427f},
-    {2.668453f, -1.419932f, 0.322275f},
-    {2.650535f, -1.579094f, 0.469397f},
-    {2.596534f, -1.647050f, 0.621313f},
-    {2.719973f, -1.835932f, 0.686755f}};
-static const int action_get2put_len = sizeof(action_get2put) / sizeof(action_get2put[0]);
-// Process3
-static const float action_put2get[][3] = {
-    {2.719973f, -1.835932f, 0.686755f},
-    {2.873342f, -2.010703f, 0.734209f},
-    {2.925128f, -2.118883f, 0.764551f},
-    {2.916062f, -1.953074f, 0.715761f},
-    {2.899294f, -1.786228f, 0.677656f},
-    {2.898312f, -1.626014f, 0.626772f},
-    {2.924140f, -1.408814f, 0.538224f},
-    {2.939968f, -1.264756f, 0.469399f},
-    {2.940805f, -1.049351f, 0.344122f},
-    {2.984561f, -0.833068f, 0.301639f},
-    {2.990553f, -0.609200f, 0.246428f},
-    {3.028295f, -0.421757f, 0.120946f},
-    {3.059485f, -0.381815f, 0.057691f},
-    {3.087053f, -0.206407f, 0.027516f},
-    {3.141593f, 0.000000f, 0.000000f}};
-static const int action_put2get_len = sizeof(action_put2get) / sizeof(action_put2get[0]);
-
-// 弧度转角度
-static const float RAD2DEG = 180.0f / 3.1415926f;
-
-// 播放轨迹 helper
-static void Arm_Action(Arm::Controller* arm, const float traj[][3], int len)
-{
-    if (!arm)
-        return;
-    for (int i = 0; i < len; ++i)
-    {
-        float t1, t2, t3;
-        arm->setJointTarget(
-            traj[i][0] * RAD2DEG,
-            traj[i][1] * RAD2DEG,
-            traj[i][2] * RAD2DEG,
-            &t1, &t2, &t3);
-
-        float max_t = t1 > t2 ? t1 : t2;
-        if (t3 > max_t)
-            max_t = t3;
-
-        uint32_t run_time = (uint32_t)(max_t * 1000);
-        run_time          = run_time / 2;
-
-        osDelay(run_time);
-    }
-}
-
 float q1, q2, q3;
 void MotorCtrl(void* argument)
 {
     // 等待系统稳定
     osDelay(4000);
 
-    // if (robot_arm)
-    // {
-    //     Arm_Action(robot_arm, action_init2get, action_init2get_len);
-    //     osDelay(5000);
-    //     Arm_Action(robot_arm, action_get2put, action_get2put_len);
-    //     osDelay(5000);
-    //     Arm_Action(robot_arm, action_put2get, action_put2get_len);
-    // }
+    /*
+    if (robot_arm)
+    {
+        is_animating = true;
+        Arm_PlayAction(robot_arm, TRAJ_INIT2GET);
+        osDelay(5000);
+        is_animating = false;
+        // Arm_PlayAction(robot_arm, TRAJ_GET2PUT);
+        // osDelay(5000);
+        // Arm_PlayAction(robot_arm, TRAJ_PUT2GET);
+    }
+    */
 
-    // 播放完毕后，恢复串口控制
-    // 开启空闲中断接收 (DMA)
-    HAL_UARTEx_ReceiveToIdle_DMA(&UART_PC_HANDLER, uart3_rx_buf, sizeof(uart3_rx_buf));
-
-    char tx_buf[64];
-    int vacuum_state = 0;
     for (;;)
     {
-        // 1. 处理接收到的数据
-        if (uart3_rx_flag)
+        if (requested_action >= 0 && robot_arm)
         {
-            // 确保字符串结束
-            if (uart3_rx_len < sizeof(uart3_rx_buf))
-                uart3_rx_buf[uart3_rx_len] = 0;
-            else
-                uart3_rx_buf[sizeof(uart3_rx_buf) - 1] = 0;
-
-            // 解析 CSV: 45.5, 30.0, 0.0, 1
-            // 注意: sscanf 会自动跳过空白字符，但逗号需要显式匹配
-            if (sscanf((char*)uart3_rx_buf, "%f, %f, %f, %d", &q1, &q2, &q3, &vacuum_state) == 4)
+            if (requested_action < ACTION_TOTAL_COUNT)
             {
-                if (robot_arm)
-                {
-                    robot_arm->setJointTarget(q1, q2, q3);
-                }
-                if (vacuum_state)
-                    robot_arm->setPayload(0.6, 0.5);
-                else
-                    robot_arm->setPayload(0.0, 0.0);
-                HAL_GPIO_WritePin(GPIOE, GPIO_PIN_6, (GPIO_PinState)!vacuum_state);
+                is_animating = true;
+                Arm_PlayAction(robot_arm, requested_action);
+                is_animating = false;
             }
-
-            uart3_rx_flag = false;
-            // 重新开启接收
-            HAL_UARTEx_ReceiveToIdle_DMA(&UART_PC_HANDLER, uart3_rx_buf, sizeof(uart3_rx_buf));
+            else
+            {
+                // Invalid action ID
+            }
+            requested_action = -1;
         }
-
-        // 2. 发送当前状态反馈
-        if (robot_arm)
-        {
-            float cur_q1, cur_q2, cur_q3;
-            robot_arm->getJointAngles(cur_q1, cur_q2, cur_q3);
-
-            // float pressure_kpa = pressure_sensor.readPressure() / 1000.0f;
-            float pressure_kpa = 100.0f;
-            int len            = sprintf(tx_buf, "%.2f, %.2f, %.2f, %.2f\n", cur_q1, cur_q2, cur_q3, pressure_kpa);
-
-            HAL_UART_Transmit_DMA(&UART_PC_HANDLER, (uint8_t*)tx_buf, len);
-        }
-
-        osDelay(50); // 20Hz 刷新率
+        osDelay(100);
     }
 }
 

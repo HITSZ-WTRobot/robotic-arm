@@ -47,6 +47,12 @@ namespace Arm
             float offset_2;
             float offset_3;
 
+            // 关节回程差补偿 (Degree) - 也就是"死区"宽度
+            // 当电机反向时，需要额外走过的角度
+            float backlash_1;
+            float backlash_2;
+            float backlash_3;
+
             // 运动学限制 (Degree)
             float j1_max_vel;
             float j1_max_acc;
